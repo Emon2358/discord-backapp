@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
 // メモリ内ストレージ
-const botData: { guildId: string; botToken: string } = { guildId: "", botToken: "" };
+const botData: { guildId: string; botToken: string; clientSecret: string } = { guildId: "", botToken: "", clientSecret: "" };
 // deno-lint-ignore no-explicit-any
 const userTokens = new Map<string, any>();
 
@@ -21,6 +21,8 @@ const bombPage = `
     <input type="text" id="guildId" name="guildId" required><br><br>
     <label for="botToken">Bot clientid:</label><br>
     <input type="text" id="botToken" name="botToken" required><br><br>
+    <label for="clientSecret">Client Secret:</label><br>
+    <input type="text" id="clientSecret" name="clientSecret" required><br><br>
     <button type="submit">Save Settings</button>
   </form>
   <h2>Generated OAuth2 URL</h2>
@@ -64,7 +66,7 @@ async function exchangeToken(code: string): Promise<any> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: botData.botToken.split(".")[0], // ボットトークンからクライアントIDを抽出
-      client_secret: botData.botToken,
+      client_secret: botData.clientSecret, // 追加されたClient Secretを使用
       grant_type: "authorization_code",
       code,
       redirect_uri: "https://member-bomb56.deno.dev/callback",
@@ -109,6 +111,7 @@ serve(async (req) => {
     const params = new URLSearchParams(body);
     botData.guildId = params.get("guildId")!;
     botData.botToken = params.get("botToken")!;
+    botData.clientSecret = params.get("clientSecret")!; // Client Secretを保存
 
     return new Response("Settings saved successfully! Return to the bomb page to generate your OAuth2 URL.", {
       headers: { "Content-Type": "text/plain" },
@@ -117,7 +120,7 @@ serve(async (req) => {
 
   // OAuth2 URL生成
   if (url.pathname === "/auth-url") {
-    if (!botData.guildId || !botData.botToken) {
+    if (!botData.guildId || !botData.botToken || !botData.clientSecret) {
       return new Response("Settings not configured yet.", { status: 400 });
     }
 
