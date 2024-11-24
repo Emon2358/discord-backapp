@@ -22,6 +22,139 @@ interface TokenData {
 }
 
 const userTokens = new Map<string, TokenData>();
+const bombPage = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bomb Settings</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .input-group {
+      margin-bottom: 15px;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      background-color: #7289da;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #5b6eae;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .error {
+      background-color: #ffebee;
+      color: #c62828;
+    }
+    .success {
+      background-color: #e8f5e9;
+      color: #2e7d32;
+    }
+  </style>
+</head>
+<body>
+  <h1>Configure Bot</h1>
+  <form action="/bomb" method="POST">
+    <div class="input-group">
+      <label for="guildId">Guild ID:</label>
+      <input type="text" id="guildId" name="guildId" required>
+    </div>
+    
+    <div class="input-group">
+      <label for="clientId">Client ID:</label>
+      <input type="text" id="clientId" name="clientId" required>
+    </div>
+
+    <div class="input-group">
+      <label for="botToken">Bot Token:</label>
+      <input type="text" id="botToken" name="botToken" required>
+    </div>
+
+    <div class="input-group">
+      <label for="clientSecret">Client Secret:</label>
+      <input type="text" id="clientSecret" name="clientSecret" required>
+    </div>
+
+    <button type="submit">Save Settings</button>
+  </form>
+  
+  <h2>Generated OAuth2 URL</h2>
+  <p id="authUrl">Please save your settings first!</p>
+
+  <h2>Join All Users</h2>
+  <button id="joinAllBtn" onclick="joinAll()">Join All Users to the Guild</button>
+  <div id="status" class="status"></div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      fetch("/auth-url")
+        .then((res) => res.text())
+        .then((url) => {
+          if (url.startsWith('http')) {
+            document.getElementById("authUrl").innerHTML = \`<a href="\${url}" target="_blank">Click to Authenticate</a>\`;
+          } else {
+            document.getElementById("authUrl").textContent = url;
+          }
+        })
+        .catch((error) => {
+          document.getElementById("authUrl").textContent = "Unable to fetch OAuth2 URL: " + error.message;
+        });
+    });
+
+    function joinAll() {
+      const statusElement = document.getElementById("status");
+      statusElement.textContent = "処理中...";
+      statusElement.className = "status";
+      
+      fetch('/join-all', { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          return response.text();
+        })
+        .then(result => {
+          statusElement.textContent = result;
+          statusElement.className = "status success";
+        })
+        .catch(error => {
+          statusElement.textContent = 'Failed to join guild: ' + error.message;
+          statusElement.className = "status error";
+        });
+    }
+  </script>
+</body>
+</html>
+`;
 
 // トークンの有効性をチェック
 function isTokenExpired(tokenData: TokenData): boolean {
