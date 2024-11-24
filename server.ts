@@ -1,60 +1,153 @@
-import { serve } from "https://deno.land/std@0.194.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
-const tokens = new Map();
+// メモリ内ストレージ
+const botData: { guildId: string; botToken: string } = { guildId: "", botToken: "" };
+// deno-lint-ignore no-explicit-any
+const userTokens = new Map<string, any>();
 
+// HTMLテンプレート
+const bombPage = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bomb Settings</title>
+</head>
+<body>
+  <h1>Configure Bot</h1>
+  <form action="/bomb" method="POST">
+    <label for="guildId">Guild ID:</label><br>
+    <input type="text" id="guildId" name="guildId" required><br><br>
+    <label for="botToken">Bot Token:</label><br>
+    <input type="text" id="botToken" name="botToken" required><br><br>
+    <button type="submit">Save Settings</button>
+  </form>
+  <h2>Generated OAuth2 URL</h2>
+  <p id="authUrl">Please save your settings first!</p>
+</body>
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    fetch("/auth-url")
+      .then((res) => res.text())
+      .then((url) => {
+        document.getElementById("authUrl").innerHTML = \`<a href="\${url}" target="_blank">Click to Authenticate</a>\`;
+      })
+      .catch(() => {
+        document.getElementById("authUrl").textContent = "Unable to fetch OAuth2 URL.";
+      });
+  });
+</script>
+</html>
+`;
+
+// トークンを交換
+// deno-lint-ignore no-explicit-any
+async function exchangeToken(code: string): Promise<any> {
+  const response = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: botData.botToken.split(".")[0], // ボットトークンからクライアントIDを抽出
+      client_secret: botData.botToken,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: "https://member-bomb56.deno.dev//callback",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to exchange token: ${await response.text()}`);
+  }
+
+  return await response.json();
+}
+
+// サーバーに参加させる
+async function addUserToGuild(accessToken: string, guildId: string) {
+  const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/@me`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to join guild: ${await response.text()}`);
+  }
+}
+
+// サーバー起動
 serve(async (req) => {
   const url = new URL(req.url);
 
-  // /callbackパスへのGETリクエストを処理
-  if (url.pathname === "/callback" && req.method === "GET") {
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
+  // 設定画面
+  if (url.pathname === "/bomb" && req.method === "GET") {
+    return new Response(bombPage, { headers: { "Content-Type": "text/html" } });
+  }
 
-    // codeパラメータがない場合、エラーを返す
-    if (!code) {
-      return new Response("Missing code parameter", { status: 400 });
-    }
+  // 設定保存
+  if (url.pathname === "/bomb" && req.method === "POST") {
+    const body = new TextDecoder().decode(await req.arrayBuffer());
+    const params = new URLSearchParams(body);
+    botData.guildId = params.get("guildId")!;
+    botData.botToken = params.get("botToken")!;
 
-    // 環境変数のデバッグ
-    console.log("CLIENT_ID:", Deno.env.get("CLIENT_ID"));
-    console.log("CLIENT_SECRET:", Deno.env.get("CLIENT_SECRET"));
-    console.log("REDIRECT_URI:", Deno.env.get("REDIRECT_URI"));
-
-    // Discordトークン取得
-    const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: Deno.env.get("CLIENT_ID")!,  // 必須環境変数
-        client_secret: Deno.env.get("CLIENT_SECRET")!,  // 必須環境変数
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: Deno.env.get("REDIRECT_URI")!,  // 必須環境変数
-      }),
-    });
-
-    // トークンリクエストが失敗した場合
-    if (!tokenResponse.ok) {
-      const errorData = await tokenResponse.json();
-      console.error("Error fetching token:", errorData);
-      return new Response("Failed to fetch tokens", { status: 400 });
-    }
-
-    // トークンデータを取得
-    const tokenData = await tokenResponse.json();
-
-    // stateとトークンデータをMapに保存
-    tokens.set(state, tokenData);
-
-    // トークン取得成功メッセージ
-    console.log("Token Data:", tokenData);
-
-    return new Response("Authentication successful!", {
-      headers: { "Access-Control-Allow-Origin": "*" },  // CORS設定
+    return new Response("Settings saved successfully! Return to the bomb page to generate your OAuth2 URL.", {
+      headers: { "Content-Type": "text/plain" },
     });
   }
 
-  // その他のリクエストには404エラーを返す
+  // OAuth2 URL生成
+  if (url.pathname === "/auth-url") {
+    if (!botData.guildId || !botData.botToken) {
+      return new Response("Settings not configured yet.", { status: 400 });
+    }
+
+    const state = crypto.randomUUID();
+    const authUrl = `https://discord.com/oauth2/authorize?client_id=${
+      botData.botToken.split(".")[0]
+    }&redirect_uri=${encodeURIComponent("https://member-bomb56.deno.dev//callback")}&response_type=code&scope=identify%20guilds.join&state=${state}`;
+    return new Response(authUrl);
+  }
+
+  // OAuth2 コールバック
+  if (url.pathname === "/callback") {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+
+    if (!code || !state) {
+      return new Response("Missing code or state parameter", { status: 400 });
+    }
+
+    try {
+      const tokenData = await exchangeToken(code);
+      userTokens.set(state, tokenData);
+      return new Response("Authentication successful! Return to /bomb and proceed with joining the server.", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    } catch (err) {
+      console.error("Error in callback:", err);
+      return new Response("Internal server error", { status: 500 });
+    }
+  }
+
+  // サーバーに一斉参加
+  if (url.pathname === "/join-all" && req.method === "POST") {
+    try {
+      const promises = [...userTokens.values()].map((token) =>
+        addUserToGuild(token.access_token, botData.guildId)
+      );
+      await Promise.all(promises);
+      return new Response("All users successfully joined the server!", { headers: { "Content-Type": "text/plain" } });
+    } catch (err) {
+      console.error("Error in join-all:", err);
+      return new Response("Failed to join all users.", { status: 500 });
+    }
+  }
+
   return new Response("Not Found", { status: 404 });
 });
 
