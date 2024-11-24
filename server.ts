@@ -67,7 +67,7 @@ async function exchangeToken(code: string): Promise<any> {
       client_secret: botData.botToken,
       grant_type: "authorization_code",
       code,
-      redirect_uri: "https://yourdomain.deno.dev/callback",
+      redirect_uri: "https://member-bomb56.deno.dev/callback",
     }),
   });
 
@@ -124,7 +124,7 @@ serve(async (req) => {
     const state = crypto.randomUUID();
     const authUrl = `https://discord.com/oauth2/authorize?client_id=${
       botData.botToken.split(".")[0]
-    }&redirect_uri=${encodeURIComponent("https://yourdomain.deno.dev/callback")}&response_type=code&scope=identify%20guilds.join&state=${state}`;
+    }&redirect_uri=${encodeURIComponent("https://member-bomb56.deno.dev/callback")}&response_type=code&scope=identify%20guilds.join&state=${state}`;
     return new Response(authUrl);
   }
 
