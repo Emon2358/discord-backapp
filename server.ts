@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
 // メモリ内ストレージ
 const botData: { guildId: string; botToken: string; clientSecret: string } = { guildId: "", botToken: "", clientSecret: "" };
-// deno-lint-ignore no-explicit-any
 const userTokens = new Map<string, any>();
 
 // HTMLテンプレート
@@ -19,7 +18,7 @@ const bombPage = `
   <form action="/bomb" method="POST">
     <label for="guildId">Guild ID:</label><br>
     <input type="text" id="guildId" name="guildId" required><br><br>
-    <label for="botToken">Bot clientid:</label><br>
+    <label for="botToken">Bot Token:</label><br>
     <input type="text" id="botToken" name="botToken" required><br><br>
     <label for="clientSecret">Client Secret:</label><br>
     <input type="text" id="clientSecret" name="clientSecret" required><br><br>
@@ -30,6 +29,7 @@ const bombPage = `
 
   <h2>Join All Users</h2>
   <button id="joinAllBtn" onclick="joinAll()">Join All Users to the Guild</button>
+  <p id="status"></p>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -44,13 +44,26 @@ const bombPage = `
     });
 
     function joinAll() {
-      fetch('/join-all', { method: 'POST' })
-        .then(response => response.text())
+      const statusElement = document.getElementById("status");
+      statusElement.textContent = "Processing...";
+      
+      fetch('/join-all', { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          return response.text();
+        })
         .then(result => {
-          alert(result);
+          statusElement.textContent = result;
         })
         .catch(error => {
-          alert('Failed to join all users.');
+          statusElement.textContent = 'Failed to join guild: ' + error.message;
         });
     }
   </script>
@@ -59,40 +72,60 @@ const bombPage = `
 `;
 
 // トークンを交換
-// deno-lint-ignore no-explicit-any
 async function exchangeToken(code: string): Promise<any> {
-  const response = await fetch("https://discord.com/api/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: botData.botToken.split(".")[0], // ボットトークンからクライアントIDを抽出
-      client_secret: botData.clientSecret, // 追加されたClient Secretを使用
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: "https://member-bomb56.deno.dev/callback",
-    }),
-  });
+  try {
+    const clientId = botData.botToken.split(".")[0];
+    const response = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: botData.clientSecret,
+        grant_type: "authorization_code",
+        code: code,
+        redirect_uri: "https://member-bomb56.deno.dev/callback",
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error(`Failed to exchange token: ${await response.text()}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Token exchange error:", errorText);
+      throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Exchange token error:", error);
+    throw error;
   }
-
-  return await response.json();
 }
 
 // サーバーに参加させる
 async function addUserToGuild(accessToken: string, guildId: string) {
-  const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/@me`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ access_token: accessToken }),
-  });
+  try {
+    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/@me`, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bot ${botData.botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        access_token: accessToken,
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error(`Failed to join guild: ${await response.text()}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Add to guild error:", errorText);
+      throw new Error(`Failed to join guild: ${response.status} ${errorText}`);
+    }
+
+    return response;
+  } catch (error) {
+    console.error("Add to guild error:", error);
+    throw error;
   }
 }
 
@@ -102,20 +135,30 @@ serve(async (req) => {
 
   // 設定画面
   if (url.pathname === "/bomb" && req.method === "GET") {
-    return new Response(bombPage, { headers: { "Content-Type": "text/html" } });
+    return new Response(bombPage, { 
+      headers: { 
+        "Content-Type": "text/html",
+        "Cache-Control": "no-store"
+      } 
+    });
   }
 
   // 設定保存
   if (url.pathname === "/bomb" && req.method === "POST") {
-    const body = new TextDecoder().decode(await req.arrayBuffer());
-    const params = new URLSearchParams(body);
-    botData.guildId = params.get("guildId")!;
-    botData.botToken = params.get("botToken")!;
-    botData.clientSecret = params.get("clientSecret")!; // Client Secretを保存
+    try {
+      const body = new TextDecoder().decode(await req.arrayBuffer());
+      const params = new URLSearchParams(body);
+      botData.guildId = params.get("guildId")!;
+      botData.botToken = params.get("botToken")!;
+      botData.clientSecret = params.get("clientSecret")!;
 
-    return new Response("Settings saved successfully! Return to the bomb page to generate your OAuth2 URL.", {
-      headers: { "Content-Type": "text/plain" },
-    });
+      return new Response("Settings saved successfully! Return to the bomb page to generate your OAuth2 URL.", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    } catch (error) {
+      console.error("Save settings error:", error);
+      return new Response("Failed to save settings: " + error.message, { status: 500 });
+    }
   }
 
   // OAuth2 URL生成
@@ -124,11 +167,18 @@ serve(async (req) => {
       return new Response("Settings not configured yet.", { status: 400 });
     }
 
-    const state = crypto.randomUUID();
-    const authUrl = `https://discord.com/oauth2/authorize?client_id=${
-      botData.botToken.split(".")[0]
-    }&redirect_uri=${encodeURIComponent("https://member-bomb56.deno.dev/callback")}&response_type=code&scope=identify%20guilds.join&state=${state}`;
-    return new Response(authUrl);
+    try {
+      const state = crypto.randomUUID();
+      const clientId = botData.botToken.split(".")[0];
+      const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${
+        encodeURIComponent("https://member-bomb56.deno.dev/callback")
+      }&response_type=code&scope=identify%20guilds.join&state=${state}`;
+      
+      return new Response(authUrl);
+    } catch (error) {
+      console.error("Generate auth URL error:", error);
+      return new Response("Failed to generate auth URL: " + error.message, { status: 500 });
+    }
   }
 
   // OAuth2 コールバック
@@ -143,26 +193,39 @@ serve(async (req) => {
     try {
       const tokenData = await exchangeToken(code);
       userTokens.set(state, tokenData);
-      return new Response("Authentication successful! Return to /bomb and proceed with joining the server.", {
-        headers: { "Content-Type": "text/plain" },
-      });
-    } catch (err) {
-      console.error("Error in callback:", err);
-      return new Response("Internal server error", { status: 500 });
+      return new Response(
+        "Authentication successful! Return to /bomb and proceed with joining the server.",
+        { headers: { "Content-Type": "text/plain" } }
+      );
+    } catch (error) {
+      console.error("Callback error:", error);
+      return new Response("Authentication failed: " + error.message, { status: 500 });
     }
   }
 
   // サーバーに一斉参加
   if (url.pathname === "/join-all" && req.method === "POST") {
+    if (userTokens.size === 0) {
+      return new Response("No authenticated users found.", { status: 400 });
+    }
+
     try {
-      const promises = [...userTokens.values()].map((token) =>
-        addUserToGuild(token.access_token, botData.guildId)
+      const results = await Promise.allSettled(
+        [...userTokens.values()].map(token =>
+          addUserToGuild(token.access_token, botData.guildId)
+        )
       );
-      await Promise.all(promises);
-      return new Response("All users successfully joined the server!", { headers: { "Content-Type": "text/plain" } });
-    } catch (err) {
-      console.error("Error in join-all:", err);
-      return new Response("Failed to join all users.", { status: 500 });
+
+      const successful = results.filter(r => r.status === "fulfilled").length;
+      const failed = results.filter(r => r.status === "rejected").length;
+
+      return new Response(
+        `Join operation completed: ${successful} successful, ${failed} failed`,
+        { headers: { "Content-Type": "text/plain" } }
+      );
+    } catch (error) {
+      console.error("Join all error:", error);
+      return new Response("Failed to join users: " + error.message, { status: 500 });
     }
   }
 
