@@ -1,7 +1,12 @@
 import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
 // メモリ内ストレージ
-const botData: { guildId: string; botToken: string } = { guildId: "", botToken: "" };
+const botData: { guildId: string; clientId: string; clientSecret: string } = {
+  guildId: "",
+  clientId: "",
+  clientSecret: "",
+};
+const stateStore = new Map<string, string>();
 // deno-lint-ignore no-explicit-any
 const userTokens = new Map<string, any>();
 
@@ -19,8 +24,10 @@ const bombPage = `
   <form action="/bomb" method="POST">
     <label for="guildId">Guild ID:</label><br>
     <input type="text" id="guildId" name="guildId" required><br><br>
-    <label for="botToken">Bot clientid:</label><br>
-    <input type="text" id="botToken" name="botToken" required><br><br>
+    <label for="clientId">Client ID:</label><br>
+    <input type="text" id="clientId" name="clientId" required><br><br>
+    <label for="clientSecret">Client Secret:</label><br>
+    <input type="text" id="clientSecret" name="clientSecret" required><br><br>
     <button type="submit">Save Settings</button>
   </form>
   <h2>Generated OAuth2 URL</h2>
@@ -42,14 +49,13 @@ const bombPage = `
 `;
 
 // トークンを交換
-// deno-lint-ignore no-explicit-any
 async function exchangeToken(code: string): Promise<any> {
   const response = await fetch("https://discord.com/api/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: botData.botToken.split(".")[0], // ボットトークンからクライアントIDを抽出
-      client_secret: botData.botToken,
+      client_id: botData.clientId,
+      client_secret: botData.clientSecret,
       grant_type: "authorization_code",
       code,
       redirect_uri: "https://member-bomb56.deno.dev/callback",
@@ -57,7 +63,9 @@ async function exchangeToken(code: string): Promise<any> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to exchange token: ${await response.text()}`);
+    const errorDetails = await response.text();
+    console.error("Failed to exchange token:", errorDetails);
+    throw new Error(`Discord token exchange error: ${errorDetails}`);
   }
 
   return await response.json();
@@ -75,7 +83,9 @@ async function addUserToGuild(accessToken: string, guildId: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to join guild: ${await response.text()}`);
+    const errorDetails = await response.text();
+    console.error("Failed to join guild:", errorDetails);
+    throw new Error(`Discord join guild error: ${errorDetails}`);
   }
 }
 
@@ -93,7 +103,8 @@ serve(async (req) => {
     const body = new TextDecoder().decode(await req.arrayBuffer());
     const params = new URLSearchParams(body);
     botData.guildId = params.get("guildId")!;
-    botData.botToken = params.get("botToken")!;
+    botData.clientId = params.get("clientId")!;
+    botData.clientSecret = params.get("clientSecret")!;
 
     return new Response("Settings saved successfully! Return to the bomb page to generate your OAuth2 URL.", {
       headers: { "Content-Type": "text/plain" },
@@ -102,13 +113,14 @@ serve(async (req) => {
 
   // OAuth2 URL生成
   if (url.pathname === "/auth-url") {
-    if (!botData.guildId || !botData.botToken) {
+    if (!botData.guildId || !botData.clientId || !botData.clientSecret) {
       return new Response("Settings not configured yet.", { status: 400 });
     }
 
     const state = crypto.randomUUID();
+    stateStore.set(state, "pending");
     const authUrl = `https://discord.com/oauth2/authorize?client_id=${
-      botData.botToken.split(".")[0]
+      botData.clientId
     }&redirect_uri=${encodeURIComponent("https://member-bomb56.deno.dev/callback")}&response_type=code&scope=identify%20guilds.join&state=${state}`;
     return new Response(authUrl);
   }
@@ -118,8 +130,8 @@ serve(async (req) => {
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
 
-    if (!code || !state) {
-      return new Response("Missing code or state parameter", { status: 400 });
+    if (!code || !state || !stateStore.has(state)) {
+      return new Response("Invalid or missing code/state parameter.", { status: 400 });
     }
 
     try {
@@ -130,7 +142,7 @@ serve(async (req) => {
       });
     } catch (err) {
       console.error("Error in callback:", err);
-      return new Response("Internal server error", { status: 500 });
+      return new Response("Internal server error during token exchange.", { status: 500 });
     }
   }
 
@@ -150,4 +162,3 @@ serve(async (req) => {
 
   return new Response("Not Found", { status: 404 });
 });
-
