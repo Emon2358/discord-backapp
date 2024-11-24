@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
 // メモリ内ストレージ
@@ -24,8 +25,36 @@ const bombPage = `
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bomb Settings</title>
   <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
     .input-group {
       margin-bottom: 15px;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      background-color: #7289da;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #5b6eae;
     }
     .status {
       margin-top: 10px;
@@ -46,22 +75,22 @@ const bombPage = `
   <h1>Configure Bot</h1>
   <form action="/bomb" method="POST">
     <div class="input-group">
-      <label for="guildId">Guild ID:</label><br>
+      <label for="guildId">Guild ID:</label>
       <input type="text" id="guildId" name="guildId" required>
     </div>
     
     <div class="input-group">
-      <label for="clientId">Client ID:</label><br>
+      <label for="clientId">Client ID:</label>
       <input type="text" id="clientId" name="clientId" required>
     </div>
 
     <div class="input-group">
-      <label for="botToken">Bot Token:</label><br>
+      <label for="botToken">Bot Token:</label>
       <input type="text" id="botToken" name="botToken" required>
     </div>
 
     <div class="input-group">
-      <label for="clientSecret">Client Secret:</label><br>
+      <label for="clientSecret">Client Secret:</label>
       <input type="text" id="clientSecret" name="clientSecret" required>
     </div>
 
@@ -93,7 +122,7 @@ const bombPage = `
 
     function joinAll() {
       const statusElement = document.getElementById("status");
-      statusElement.textContent = "Processing...";
+      statusElement.textContent = "処理中...";
       statusElement.className = "status";
       
       fetch('/join-all', { 
@@ -157,7 +186,22 @@ async function addUserToGuild(accessToken: string, guildId: string) {
   try {
     console.log("Adding user to guild with access token:", accessToken.substring(0, 10) + "...");
     
-    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/@me`, {
+    // ユーザー情報を取得
+    const userResponse = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!userResponse.ok) {
+      throw new Error(`Failed to get user info: ${await userResponse.text()}`);
+    }
+
+    const userData = await userResponse.json();
+    const userId = userData.id;
+
+    // ユーザーを追加
+    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
       method: "PUT",
       headers: {
         "Authorization": `Bot ${botData.botToken}`,
@@ -165,6 +209,7 @@ async function addUserToGuild(accessToken: string, guildId: string) {
       },
       body: JSON.stringify({
         access_token: accessToken,
+        roles: [] // 必要に応じてロールを指定
       }),
     });
 
