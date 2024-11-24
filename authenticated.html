@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>認証成功</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #1e90ff, #ff69b4);
+        font-family: Arial, sans-serif;
+        color: #fff;
+        text-align: center;
+      }
+      .container {
+        animation: fadeIn 1.5s ease-in-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.9);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      h1 {
+        font-size: 4rem;
+        margin: 0;
+      }
+      p {
+        font-size: 1.2rem;
+        margin: 10px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>認証しました!!</h1>
+      <p>ようこそ、認証が正常に完了しました。</p>
+    </div>
+  </body>
+</html>
