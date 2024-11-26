@@ -206,5 +206,3 @@ async function handler(req: Request): Promise<Response> {
 // サーバー起動
 console.log("サーバーがポート8000で起動しました");
 await serve(handler, { port: 8000 });
-message.txt
-7 KB
