@@ -1,5 +1,4 @@
-// deno-lint-ignore-file no-unused-vars no-explicit-any
-import { Application, Router, Context } from "https://deno.land/x/oak@v17.1.3/mod.ts";
+import { Application, Router } from "https://deno.land/x/oak@v17.1.3/mod.ts";
 
 const config = {
   CLIENT_ID: "",
@@ -36,16 +35,15 @@ router.get("/kanri", (ctx) => {
 // 設定保存処理
 router.post("/save-config", async (ctx) => {
   try {
-    // ctx.request.body() メソッドを使ってフォームデータを取得
-    const body = await ctx.request.body({ type: "form" }).value;
-    const clientId = body.get("CLIENT_ID") || "";
-    const clientSecret = body.get("CLIENT_SECRET") || "";
-    const redirectUri = body.get("REDIRECT_URI") || "";
+    const body = ctx.request.body({ type: "form" });
+    const formData = await body.value;
+
+    const clientId = formData.get("CLIENT_ID") || "";
+    const clientSecret = formData.get("CLIENT_SECRET") || "";
+    const redirectUri = formData.get("REDIRECT_URI") || "";
 
     if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error(
-        "設定情報が不完全です。すべてのフィールドを入力してください。"
-      );
+      throw new Error("設定情報が不完全です。すべてのフィールドを入力してください。");
     }
 
     // 設定を保存
