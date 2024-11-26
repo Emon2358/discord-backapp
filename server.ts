@@ -125,7 +125,7 @@ serve(async (req) => {
                 <img src="https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png" width="50">
                 ${userInfo.username}さんようこそ！！
               </p>
-              <a></a>
+              <a href="/bomb">設定に戻る</a>
             </body>
           </html>`,
           { headers: { "Content-Type": "text/html" } }
