@@ -1,9 +1,5 @@
 // deno-lint-ignore-file no-unused-vars no-explicit-any
-import {
-  Application,
-  Router,
-  Context,
-} from "https://deno.land/x/oak@v17.1.3/mod.ts";
+import { Application, Router, Context } from "https://deno.land/x/oak@v17.1.3/mod.ts";
 
 const config = {
   CLIENT_ID: "",
@@ -40,10 +36,13 @@ router.get("/kanri", (ctx) => {
 // 設定保存処理
 router.post("/save-config", async (ctx) => {
   try {
-    const body = await ctx.request.body({ type: "form" }).value; // 正しいボディの取得方法
-    const clientId = body.get("CLIENT_ID") || "";
-    const clientSecret = body.get("CLIENT_SECRET") || "";
-    const redirectUri = body.get("REDIRECT_URI") || "";
+    // ここでフォームデータを取得します
+    const body = await ctx.request.body({ type: "form" });
+    const formData = await body.value;
+
+    const clientId = formData.get("CLIENT_ID") || "";
+    const clientSecret = formData.get("CLIENT_SECRET") || "";
+    const redirectUri = formData.get("REDIRECT_URI") || "";
 
     if (!clientId || !clientSecret || !redirectUri) {
       throw new Error(
@@ -51,10 +50,12 @@ router.post("/save-config", async (ctx) => {
       );
     }
 
+    // 設定を保存
     config.CLIENT_ID = clientId;
     config.CLIENT_SECRET = clientSecret;
     config.REDIRECT_URI = redirectUri;
 
+    // リダイレクト
     ctx.response.redirect("/kanri");
   } catch (error) {
     console.error("設定保存時にエラーが発生しました:", error);
@@ -126,9 +127,7 @@ router.get("/callback", async (ctx) => {
         <body>
           <h1>認証成功</h1>
           <p>ユーザー名: ${userData.username}#${userData.discriminator}</p>
-          <img src="https://cdn.discordapp.com/avatars/${userData.id}/${
-      userData.avatar
-    }.png" alt="User Avatar"><br><br>
+          <img src="https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png" alt="User Avatar"><br><br>
 
           <h2>参加しているサーバー:</h2>
           <ul>
@@ -158,4 +157,3 @@ app.use(router.routes());
 app.use(router.allowedMethods());
 console.log("サーバーがポート8000で起動しました");
 await app.listen({ port: 8000 });
-
