@@ -78,7 +78,7 @@ async function handler(req: Request): Promise<Response> {
       <ul>
         ${userListHtml || "<p>まだ認証されたユーザーはいません。</p>"}
       </ul>
-      <p><a href="/kanri">管理ページに戻る</a></p>
+      <p><a></a></p>
     `;
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
