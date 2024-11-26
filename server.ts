@@ -6,8 +6,14 @@ const config = {
   REDIRECT_URI: "",
 };
 
-// 認証済みのメンバー情報を保存するオブジェクト
-const authenticatedUsers: Record<string, { username: string; servers: string[] }> = {};
+// 認証済みのメンバー情報を保存するリスト
+const authenticatedUsers: {
+  username: string;
+  discriminator: string;
+  userId: string;
+  avatar: string;
+  guilds: { name: string; id: string }[];
+}[] = [];
 
 // HTMLテンプレート生成関数
 function htmlTemplate(body: string): string {
@@ -26,7 +32,7 @@ function htmlTemplate(body: string): string {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          min-height: 100vh;
+          height: 100vh;
           background: #f4f4f4;
           color: #333;
         }
@@ -47,13 +53,6 @@ function htmlTemplate(body: string): string {
         .button:hover {
           background: #0056b3;
         }
-        ul {
-          list-style: none;
-          padding: 0;
-        }
-        li {
-          margin: 5px 0;
-        }
       </style>
     </head>
     <body>
@@ -67,9 +66,8 @@ function htmlTemplate(body: string): string {
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  if (url.pathname === "/kanri" && req.method === "GET") {
-    // 認証用のURLを生成
-    const authUrl =
+  if (url.pathname === "/auth" && req.method === "GET") {
+    const authUrl = 
       config.CLIENT_ID && config.REDIRECT_URI
         ? `https://discord.com/oauth2/authorize?client_id=${config.CLIENT_ID}&redirect_uri=${encodeURIComponent(
             config.REDIRECT_URI
@@ -77,52 +75,16 @@ async function handler(req: Request): Promise<Response> {
         : null;
 
     const body = `
-      <h1>設定情報</h1>
-      <form action="/save-config" method="POST">
-        <label for="CLIENT_ID">Discord Client ID</label>
-        <input type="text" name="CLIENT_ID" value="${config.CLIENT_ID}" required><br>
-        <label for="CLIENT_SECRET">Discord Client Secret</label>
-        <input type="text" name="CLIENT_SECRET" value="${config.CLIENT_SECRET}" required><br>
-        <label for="REDIRECT_URI">Redirect URI</label>
-        <input type="text" name="REDIRECT_URI" value="${config.REDIRECT_URI}" required><br>
-        <button type="submit">設定を保存</button>
-      </form>
-      ${authUrl ? `<p><a href="${authUrl}" class="button">Discord認証を開始</a></p>` : ""}
+      <h1>Discord認証</h1>
+      ${
+        authUrl
+          ? `<p><a href="${authUrl}" class="button">Discord認証を開始</a></p>`
+          : "<p>設定情報が不足しています。</p>"
+      }
     `;
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
-  } else if (url.pathname === "/save-config" && req.method === "POST") {
-    try {
-      const formData = await req.formData();
-      const clientId = formData.get("CLIENT_ID") || "";
-      const clientSecret = formData.get("CLIENT_SECRET") || "";
-      const redirectUri = formData.get("REDIRECT_URI") || "";
-
-      if (!clientId || !clientSecret || !redirectUri) {
-        throw new Error("設定情報が不完全です。すべてのフィールドを入力してください。");
-      }
-
-      config.CLIENT_ID = String(clientId);
-      config.CLIENT_SECRET = String(clientSecret);
-      config.REDIRECT_URI = String(redirectUri);
-
-      // 保存後は /kanri にリダイレクト
-      return new Response("", {
-        status: 303,
-        headers: { Location: "/kanri" },
-      });
-    } catch (error) {
-      console.error("設定保存時にエラーが発生しました:", error);
-      const body = `
-        <h1>エラー</h1>
-        <p>設定保存時にエラーが発生しました: ${error.message}</p>
-        <p><a href="/kanri" class="button">管理ページに戻る</a></p>
-      `;
-      return new Response(htmlTemplate(body), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    }
   } else if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
     const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI } = config;
@@ -156,19 +118,34 @@ async function handler(req: Request): Promise<Response> {
       });
       const userData = await userRes.json();
 
-      const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      const guildsRes = await fetch(
+        "https://discord.com/api/v10/users/@me/guilds",
+        {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        }
+      );
+      const guildsData = await guildsRes.json();
+
+      // ユーザー情報を保存
+      authenticatedUsers.push({
+        username: userData.username,
+        discriminator: userData.discriminator,
+        userId: userData.id,
+        avatar: userData.avatar,
+        guilds: guildsData.map((guild: any) => ({
+          name: guild.name,
+          id: guild.id,
+        })),
       });
-      const guilds = await guildsRes.json();
 
-      authenticatedUsers[userData.id] = {
-        username: `${userData.username}#${userData.discriminator}`,
-        servers: guilds.map((guild: { name: string }) => guild.name),
-      };
-
-      return new Response("", {
-        status: 303,
-        headers: { Location: "/joinserver" },
+      // 認証成功ページへリダイレクト
+      const body = `
+        <h1>認証が成功しました！！</h1>
+        <p>ようこそ、${userData.username}#${userData.discriminator} さん！</p>
+        <p><a href="/joinserver" class="button">認証済みユーザーを見る</a></p>
+      `;
+      return new Response(htmlTemplate(body), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     } catch (error) {
       console.error("OAuth2認証エラー:", error);
@@ -177,15 +154,25 @@ async function handler(req: Request): Promise<Response> {
       });
     }
   } else if (url.pathname === "/joinserver" && req.method === "GET") {
+    const userListHtml = authenticatedUsers
+      .map((user) => {
+        return `
+          <li>
+            <strong>${user.username}#${user.discriminator}</strong>
+            <img src="https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png" alt="Avatar" width="50">
+            <ul>
+              ${user.guilds.map((guild) => `<li>${guild.name} (ID: ${guild.id})</li>`).join("")}
+            </ul>
+          </li>
+        `;
+      })
+      .join("");
+
     const body = `
-      <h1>認証済みメンバーと参加サーバー一覧</h1>
-      ${Object.entries(authenticatedUsers)
-        .map(
-          ([id, user]) =>
-            `<h2>${user.username}</h2>
-            <ul>${user.servers.map((server) => `<li>${server}</li>`).join("")}</ul>`
-        )
-        .join("")}
+      <h1>認証済みユーザー</h1>
+      <ul>
+        ${userListHtml || "<p>まだ認証されたユーザーはいません。</p>"}
+      </ul>
     `;
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
