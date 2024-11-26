@@ -198,7 +198,7 @@ async function handler(req: Request): Promise<Response> {
       });
 
       return new Response(
-        htmlTemplate("<h1>認証に成功しました！</h1><p>ホームに戻るには手動で移動してください。</p>"),
+        htmlTemplate("<h1>認証に成功しました！</h1><p></p>"),
         { headers: { "Content-Type": "text/html; charset=utf-8" },
         }
       );
