@@ -1,11 +1,16 @@
-// deno-lint-ignore-file no-explicit-any prefer-const ban-unused-ignore
+// deno-lint-ignore-file prefer-const no-explicit-any ban-unused-ignore no-unused-vars
 // deno-lint-ignore no-unused-vars
 import {
   Application,
   Router,
-  // deno-lint-ignore no-unused-vars
   Context,
 } from "https://deno.land/x/oak@v17.1.3/mod.ts";
+
+// 永続的にユーザー情報とその参加サーバー情報を保存するオブジェクト
+let usersData: Record<
+  string,
+  { username: string; avatar: string; guilds: any[] }
+> = {};
 
 // 設定情報を保存するためのオブジェクト
 let config = {
@@ -13,10 +18,6 @@ let config = {
   CLIENT_SECRET: "",
   REDIRECT_URI: "",
 };
-
-// ユーザーが参加しているサーバー情報を保存
-// deno-lint-ignore no-unused-vars
-let userGuilds: any[] = [];
 
 // アプリケーションとルーターを初期化
 const app = new Application();
@@ -70,9 +71,32 @@ async function getUserGuilds(token: string) {
 
 // `/kanri`ページ - 設定フォームと情報表示
 router.get("/kanri", (ctx) => {
+  let usersListHtml = Object.keys(usersData)
+    .map((userId) => {
+      const user = usersData[userId];
+      return `
+      <div>
+        <h3 onclick="showGuilds('${userId}')">
+          <img src="https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png" alt="${user.username}'s Avatar" width="40" height="40"/>
+          ${user.username}
+        </h3>
+      </div>
+    `;
+    })
+    .join("");
+
   ctx.response.body = `
     <html>
-      <head><title>管理ページ</title></head>
+      <head>
+        <title>管理ページ</title>
+        <script>
+          function showGuilds(userId) {
+            const user = ${JSON.stringify(usersData)};
+            const guildNames = user[userId].guilds.map(guild => guild.name).join(", ");
+            alert("参加しているサーバー: " + guildNames);
+          }
+        </script>
+      </head>
       <body>
         <h1>設定情報を入力してください</h1>
         <form method="POST" action="/save-config">
@@ -100,6 +124,9 @@ router.get("/kanri", (ctx) => {
           config.CLIENT_SECRET ? "*****" : ""
         }</p>
         <p><strong>Redirect URI:</strong> ${config.REDIRECT_URI}</p>
+
+        <h2>認証したユーザー</h2>
+        ${usersListHtml}
 
         <h2>Discord OAuth2リンク</h2>
         <a href="${generateDiscordOAuth2URL()}">認証ページを開く</a>
@@ -132,17 +159,20 @@ router.get("/callback", async (ctx) => {
   try {
     const tokenData = await getToken(code);
     const guilds = await getUserGuilds(tokenData.access_token);
-    userGuilds = guilds;
+
+    // ユーザー情報とサーバー情報を保存
+    usersData[tokenData.user.id] = {
+      username: tokenData.user.username,
+      avatar: tokenData.user.avatar,
+      guilds: guilds,
+    };
 
     ctx.response.body = `
       <html>
         <head><title>認証成功</title></head>
         <body>
           <h1>認証が成功しました！</h1>
-          <p>以下は参加しているサーバーの情報です。</p>
-          <ul>
-            ${guilds.map((guild: any) => `<li>${guild.name}</li>`).join("")}
-          </ul>
+          <p>ユーザー情報を確認するには、管理ページ（/kanri）に戻ってください。</p>
           <a href="/kanri">管理ページに戻る</a>
         </body>
       </html>
