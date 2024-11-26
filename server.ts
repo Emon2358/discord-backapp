@@ -1,4 +1,4 @@
-import { Application, Router } from "https://deno.land/x/oak/mod.ts";
+import { Application, Router, Context } from "https://deno.land/x/oak/mod.ts";
 
 const config = {
   CLIENT_ID: "",
@@ -35,12 +35,10 @@ router.get("/kanri", (ctx) => {
 // 設定保存処理
 router.post("/save-config", async (ctx) => {
   try {
-    const body = ctx.request.body({ type: "form" });
-    const values = await body.value;
-
-    const clientId = values.get("CLIENT_ID") || "";
-    const clientSecret = values.get("CLIENT_SECRET") || "";
-    const redirectUri = values.get("REDIRECT_URI") || "";
+    const body = await ctx.request.body({ type: "form" }).value;  // 正しいボディの取得方法
+    const clientId = body.get("CLIENT_ID") || "";
+    const clientSecret = body.get("CLIENT_SECRET") || "";
+    const redirectUri = body.get("REDIRECT_URI") || "";
 
     if (!clientId || !clientSecret || !redirectUri) {
       throw new Error("設定情報が不完全です。すべてのフィールドを入力してください。");
