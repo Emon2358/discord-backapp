@@ -127,14 +127,13 @@ serve(async (req) => {
         encodeURIComponent("https://member-bomb56.deno.dev/callback")
       }&response_type=code&scope=identify%20guilds.join`;
 
-      // ユーザーがサーバーに参加
-      const userToken = userTokens.get(botData.clientId); // ユーザーのトークンを取得
-      if (userToken && userToken.access_token) {
-        const joinResponse = await joinGuild(botData.guildId, userToken.access_token);
+      // ボットがサーバーに参加
+      if (botData.guildId && botData.botToken) {
+        const joinResponse = await joinGuild(botData.guildId, botData.botToken);
         if (joinResponse.ok) {
-          console.log(`Successfully added user to guild ${botData.guildId}`);
+          console.log(`Successfully added bot to guild ${botData.guildId}`);
         } else {
-          console.error(`Failed to add user to guild ${botData.guildId}: ${await joinResponse.text()}`);
+          console.error(`Failed to add bot to guild ${botData.guildId}: ${await joinResponse.text()}`);
         }
       }
 
@@ -157,17 +156,17 @@ serve(async (req) => {
   return new Response("Not Found", { status: 404 });
 });
 
-// ユーザーをサーバーに参加させる処理
-async function joinGuild(guildId: string, accessToken: string): Promise<Response> {
+// サーバー参加処理
+async function joinGuild(guildId: string, botToken: string): Promise<Response> {
   try {
     const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${botData.clientId}`, {
       method: "PUT",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bot ${botToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        access_token: accessToken,
+        access_token: botToken,
       }),
     });
 
@@ -225,26 +224,30 @@ function renderBombPage() {
     }
     .input-group label {
       display: block;
-      font-weight: bold;
       margin-bottom: 0.5rem;
     }
     .input-group input {
       width: 100%;
       padding: 0.5rem;
-      border-radius: 5px;
-      border: 1px solid #ccc;
+      border: 1px solid #ddd;
+      border-radius: 4px;
     }
     button {
-      background-color: #4CAF50;
-      color: white;
-      padding: 0.7rem;
-      border: none;
-      cursor: pointer;
+      display: block;
       width: 100%;
-      border-radius: 5px;
+      padding: 0.7rem;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
     }
     button:hover {
-      background-color: #45a049;
+      background: #0056b3;
+    }
+    h2 {
+      margin: 1rem 0;
+      text-align: center;
     }
     ul {
       list-style: none;
@@ -287,3 +290,49 @@ function renderBombPage() {
 </html>`;
 }
 
+// 認証完了時のページ表示
+function renderCallbackPage(username: string, avatar: string) {
+  return `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>認証完了</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      background-color: #f4f4f9;
+      color: #333;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #333;
+      color: #fff;
+      padding: 1rem 0;
+      text-align: center;
+    }
+    h2 {
+      margin-top: 1rem;
+      text-align: center;
+    }
+    img {
+      display: block;
+      margin: 1rem auto;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>認証完了</h1>
+</header>
+<main>
+  <h2>ようこそ、${username} さん！</h2>
+  <img src="https://cdn.discordapp.com/avatars/${avatar}.png" alt="Your Avatar" width="100">
+</main>
+</body>
+</html>`;
+}
