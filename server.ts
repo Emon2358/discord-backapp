@@ -161,7 +161,7 @@ async function handler(req: Request): Promise<Response> {
         <div class="success-animation">
           <h1>認証に成功しました！</h1>
           <p>ようこそ、${userData.username}#${userData.discriminator} さん！</p>
-          <a href="/kanri" class="button">管理ページに戻る</a>
+          <a></a>
         </div>
       `;
       return new Response(htmlTemplate(body), {
