@@ -97,7 +97,7 @@ async function handler(req: Request): Promise<Response> {
 
       await saveConfig();
 
-      return new Response("", { status: 303, headers: { Location: "/kanri" } });
+      return new Response("", { status: 303, headers: { Location: "/joinserver" } });
     } catch (error) {
       console.error("設定保存エラー:", error);
       return new Response(`<p>エラー: ${error.message}</p>`, {
@@ -149,7 +149,7 @@ async function handler(req: Request): Promise<Response> {
 
       await saveUsers();
 
-      return new Response("", { status: 303, headers: { Location: "/kanri" } });
+      return new Response("", { status: 303, headers: { Location: "/joinserver" } });
     } catch (error) {
       console.error("認証エラー:", error);
       return new Response(`<p>エラー: ${error.message}</p>`, {
@@ -157,7 +157,26 @@ async function handler(req: Request): Promise<Response> {
       });
     }
   } else if (url.pathname === "/joinserver" && req.method === "GET") {
-    const userListHtml = authenticatedUsers
+    const body = `
+      <h1>サーバー名で検索</h1>
+      <form action="/joinserver" method="POST">
+        <label for="guild_name">サーバー名</label>
+        <input type="text" name="guild_name" required><br>
+        <button type="submit">検索</button>
+      </form>
+    `;
+    return new Response(body, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  } else if (url.pathname === "/joinserver" && req.method === "POST") {
+    const formData = await req.formData();
+    const guildName = formData.get("guild_name") as string;
+
+    const filteredUsers = authenticatedUsers.filter((user) =>
+      user.guilds.some((guild: any) => guild.name.toLowerCase().includes(guildName.toLowerCase()))
+    );
+
+    const userListHtml = filteredUsers
       .map(
         (user) => `
           <li>
@@ -169,7 +188,11 @@ async function handler(req: Request): Promise<Response> {
       )
       .join("");
 
-    return new Response(`<h1>ユーザーと所属サーバー一覧</h1><ul>${userListHtml}</ul>`, {
+    return new Response(`
+      <h2>検索結果</h2>
+      <ul>${userListHtml}</ul>
+      <p><a href="/joinserver">再度検索</a></p>
+    `, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } else {
