@@ -1,12 +1,6 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-const config = {
-  CLIENT_ID: "", // Discord Developer Portal のクライアントID
-  CLIENT_SECRET: "", // Discord Developer Portal のクライアントシークレット
-  REDIRECT_URI: "", // Discord Developer Portal に設定したリダイレクトURI
-};
-
-// 認証済みのユーザー情報を保存するリスト
+// 認証後のユーザー情報を保存するための配列
 const authenticatedUsers: {
   username: string;
   discriminator: string;
@@ -14,6 +8,13 @@ const authenticatedUsers: {
   avatar: string;
   guilds: { name: string; id: string }[];
 }[] = [];
+
+// OAuth2認証のURL生成関数
+function generateOAuth2Url(clientId: string, redirectUri: string): string {
+  return `https://discord.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+    redirectUri
+  )}&response_type=code&scope=identify%20guilds`;
+}
 
 // HTMLテンプレート生成関数
 function htmlTemplate(body: string): string {
@@ -66,11 +67,13 @@ function htmlTemplate(body: string): string {
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
+  // /callback エンドポイント
   if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
-    const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI } = config;
+    const clientId = url.searchParams.get("client_id");
+    const redirectUri = url.searchParams.get("redirect_uri");
 
-    if (!code || !CLIENT_ID || !CLIENT_SECRET || !REDIRECT_URI) {
+    if (!code || !clientId || !redirectUri) {
       return new Response("必要な情報が不足しています。", {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
@@ -82,11 +85,11 @@ async function handler(req: Request): Promise<Response> {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          client_id: CLIENT_ID,
-          client_secret: CLIENT_SECRET,
+          client_id: clientId,
+          client_secret: "YOUR_CLIENT_SECRET", // 必要に応じてこちらを使用
           code,
           grant_type: "authorization_code",
-          redirect_uri: REDIRECT_URI,
+          redirect_uri: redirectUri,
         }),
       });
 
@@ -120,7 +123,7 @@ async function handler(req: Request): Promise<Response> {
       const body = `
         <h1>認証に成功しました！</h1>
         <p>${userData.username}#${userData.discriminator} さん、ようこそ！</p>
-        <p><a></a></p>
+        <p><a href="/joinserver" class="button">サーバー一覧を表示</a></p>
       `;
       return new Response(htmlTemplate(body), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -131,7 +134,10 @@ async function handler(req: Request): Promise<Response> {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
-  } else if (url.pathname === "/joinserver" && req.method === "GET") {
+  }
+
+  // /joinserver エンドポイント
+  else if (url.pathname === "/joinserver" && req.method === "GET") {
     if (authenticatedUsers.length === 0) {
       return new Response("認証されたユーザーがいません。", {
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -145,9 +151,7 @@ async function handler(req: Request): Promise<Response> {
       body += `
         <h2>${user.username}#${user.discriminator}</h2>
         <ul>
-          ${user.guilds.map(
-            (guild) => `<li>${guild.name}</li>`
-          ).join("")}
+          ${user.guilds.map((guild) => `<li>${guild.name}</li>`).join("")}
         </ul>
       `;
     });
@@ -155,7 +159,10 @@ async function handler(req: Request): Promise<Response> {
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
-  } else {
+  }
+
+  // その他のリクエスト
+  else {
     return new Response("Not Found", { status: 404 });
   }
 }
