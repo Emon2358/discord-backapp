@@ -36,13 +36,11 @@ router.get("/kanri", (ctx) => {
 // 設定保存処理
 router.post("/save-config", async (ctx) => {
   try {
-    // ここでフォームデータを取得します
-    const body = await ctx.request.body({ type: "form" });
-    const formData = await body.value;
-
-    const clientId = formData.get("CLIENT_ID") || "";
-    const clientSecret = formData.get("CLIENT_SECRET") || "";
-    const redirectUri = formData.get("REDIRECT_URI") || "";
+    // ctx.request.body() メソッドを使ってフォームデータを取得
+    const body = await ctx.request.body({ type: "form" }).value;
+    const clientId = body.get("CLIENT_ID") || "";
+    const clientSecret = body.get("CLIENT_SECRET") || "";
+    const redirectUri = body.get("REDIRECT_URI") || "";
 
     if (!clientId || !clientSecret || !redirectUri) {
       throw new Error(
