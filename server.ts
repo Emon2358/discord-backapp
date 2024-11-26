@@ -1,4 +1,3 @@
-// deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 // 設定ファイルのパス
@@ -26,13 +25,70 @@ async function saveConfig() {
   }
 }
 
+// DiscordのAPIを使ってアクセストークンを取得する関数
+async function getAccessToken(code: string): Promise<string | null> {
+  const url = "https://discord.com/api/oauth2/token";
+  const params = new URLSearchParams();
+  params.append("client_id", config.CLIENT_ID);
+  params.append("client_secret", config.CLIENT_SECRET);
+  params.append("grant_type", "authorization_code");
+  params.append("code", code);
+  params.append("redirect_uri", config.REDIRECT_URI);
+
+  const response = await fetch(url, {
+    method: "POST",
+    body: params,
+  });
+
+  if (!response.ok) {
+    console.error("アクセストークンの取得に失敗しました");
+    return null;
+  }
+
+  const data = await response.json();
+  return data.access_token;
+}
+
+// DiscordのAPIを使ってユーザーが参加しているサーバーを取得する関数
+async function getUserServers(accessToken: string) {
+  const url = "https://discord.com/api/v10/users/@me/guilds";
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.error("ユーザーサーバーの取得に失敗しました");
+    return [];
+  }
+
+  return await response.json();
+}
+
+// DiscordのAPIを使ってサーバーのメンバーリストを取得する関数
+async function getServerMembers(serverId: string, botToken: string) {
+  const url = `https://discord.com/api/v10/guilds/${serverId}/members?limit=1000`;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bot ${botToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.error("サーバーメンバーの取得に失敗しました");
+    return [];
+  }
+
+  return await response.json();
+}
+
 // メインハンドラー
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   // 設定情報ページ
   if (url.pathname === "/kanri") {
-    // 設定フォームを表示
     const body = `
       <h1>設定情報を入力</h1>
       <form action="/save-config" method="POST">
@@ -48,8 +104,7 @@ async function handler(req: Request): Promise<Response> {
         <button type="submit">設定を保存</button>
       </form>
     `;
-    
-    // 保存された設定があればOAuth2認証URLを表示
+
     const authUrl = config.CLIENT_ID && config.REDIRECT_URI
       ? `https://discord.com/oauth2/authorize?client_id=${config.CLIENT_ID}&redirect_uri=${encodeURIComponent(config.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`
       : null;
@@ -70,7 +125,6 @@ async function handler(req: Request): Promise<Response> {
       config.CLIENT_SECRET = formData.get("CLIENT_SECRET") as string || "";
       config.REDIRECT_URI = formData.get("REDIRECT_URI") as string || "";
 
-      // 保存
       await saveConfig();
 
       return new Response("<p>設定が保存されました。</p><p><a href='/kanri'>設定ページに戻る</a></p>", {
@@ -86,50 +140,67 @@ async function handler(req: Request): Promise<Response> {
 
   // joinserver ページ（サーバー検索機能）
   else if (url.pathname === "/joinserver") {
-    const body = `
-      <h1>サーバー検索</h1>
-      <form action="/search-server" method="GET">
-        <label for="server_name">サーバー名で検索</label>
-        <input type="text" name="server_name" required><br>
-        <button type="submit">検索</button>
+    const queryParams = url.searchParams;
+    const code = queryParams.get("code");
+
+    if (!code) {
+      return new Response("<p>認証コードが見つかりません。</p>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const accessToken = await getAccessToken(code);
+    if (!accessToken) {
+      return new Response("<p>アクセストークンの取得に失敗しました。</p>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const servers = await getUserServers(accessToken);
+    if (servers.length === 0) {
+      return new Response("<p>参加しているサーバーが見つかりませんでした。</p>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const serverList = servers.map((server: any) => `
+      <form action="/joinserver/${server.id}" method="GET">
+        <button type="submit">${server.name}</button>
       </form>
-    `;
-    
-    return new Response(body, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  }
+    `).join("");
 
-  // サーバー検索処理
-  else if (url.pathname === "/search-server" && req.method === "GET") {
-    const searchParams = url.searchParams;
-    const serverName = searchParams.get("server_name") || "";
-
-    // 実際にはサーバー名を使って検索処理を行う
-    // 仮に検索結果があると仮定
-    const mockResults = serverName ? [`サーバー: ${serverName}（サンプル結果）`] : [];
-    
-    const resultHtml = mockResults.length
-      ? mockResults.map(result => `<p>${result}</p>`).join("")
-      : "<p>サーバーが見つかりませんでした。</p>";
-    
     return new Response(`
-      <h1>検索結果</h1>
-      ${resultHtml}
-      <p><a href='/joinserver'>検索ページに戻る</a></p>
+      <h1>参加しているサーバー</h1>
+      ${serverList}
     `, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 
-  // その他のパス
-  else {
-    return new Response("404 Not Found", { status: 404 });
-  }
-}
+  // 特定のサーバーのメンバーリスト
+  else if (url.pathname.startsWith("/joinserver/")) {
+    const serverId = url.pathname.split("/").pop();
+    if (!serverId) {
+      return new Response("<p>サーバーIDが不正です。</p>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
 
-// 初期設定を読み込み
-await loadConfig();
+    const queryParams = url.searchParams;
+    const code = queryParams.get("code");
 
-// サーバー起動
-serve(handler);
+    if (!code) {
+      return new Response("<p>認証コードが見つかりません。</p>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const accessToken = await getAccessToken(code);
+    if (!accessToken) {
+      return new Response("<p>アクセストークンの取得に失敗しました。</p>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    // 必要なBotのトークンを使ってメンバーリストを取得
+    const botToken =
