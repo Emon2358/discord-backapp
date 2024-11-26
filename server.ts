@@ -112,10 +112,22 @@ const bombPage = `
 serve(async (req) => {
   const url = new URL(req.url);
 
-  if (url.pathname === "/bomb" && req.method === "GET") {
-    return new Response(bombPage, {
-      headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
-    });
+  if (url.pathname === "/bomb") {
+    if (req.method === "GET") {
+      return new Response(bombPage, {
+        headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
+      });
+    } else if (req.method === "POST") {
+      const formData = await req.formData();
+      botData.guildId = formData.get("guildId")?.toString() || "";
+      botData.clientId = formData.get("clientId")?.toString() || "";
+      botData.botToken = formData.get("botToken")?.toString() || "";
+      botData.clientSecret = formData.get("clientSecret")?.toString() || "";
+
+      return new Response("Settings saved successfully!", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
   }
 
   if (url.pathname === "/reset-oauth2" && req.method === "POST") {
@@ -140,41 +152,6 @@ serve(async (req) => {
       }&response_type=code&scope=identify%20guilds.join&state=${state}`;
     }
     return new Response(botData.cachedOAuthUrl);
-  }
-
-  if (url.pathname === "/callback") {
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
-
-    if (!code || !state) {
-      return new Response("Missing code or state parameter", { status: 400 });
-    }
-
-    try {
-      const tokenData = await exchangeToken(code);
-      const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      const userData = await userResponse.json();
-
-      userTokens.set(state, {
-        ...tokenData,
-        userId: userData.id,
-        username: userData.username,
-        avatar: userData.avatar,
-      });
-
-      const successPage = `
-        <h1>認証に成功しました！！</h1>
-        <p>
-          <img src="https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png" 
-          alt="avatar" width="50"> ${userData.username} さんようこそ！！
-        </p>
-      `;
-      return new Response(successPage, { headers: { "Content-Type": "text/html" } });
-    } catch (error) {
-      return new Response("Authentication failed: " + error.message, { status: 500 });
-    }
   }
 
   if (url.pathname === "/join-all" && req.method === "POST") {
