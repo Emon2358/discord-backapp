@@ -136,7 +136,7 @@ serve(async (req) => {
     if (!botData.cachedOAuthUrl) {
       const state = crypto.randomUUID();
       botData.cachedOAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${botData.clientId}&redirect_uri=${
-        encodeURIComponent("https://your-callback-url.com/callback")
+        encodeURIComponent("https://member-bomb56.deno.dev/callback")
       }&response_type=code&scope=identify%20guilds.join&state=${state}`;
     }
     return new Response(botData.cachedOAuthUrl);
@@ -178,9 +178,41 @@ serve(async (req) => {
   }
 
   if (url.pathname === "/join-all" && req.method === "POST") {
-    await refreshAllTokens();
-    // Join logic...
-    return new Response("Joined successfully.");
+    const guildId = botData.guildId;
+
+    if (!guildId || !botData.botToken) {
+      return new Response("Bot settings are incomplete. Please configure the bot.", { status: 400 });
+    }
+
+    let successfulJoins = 0;
+    let failedJoins = 0;
+
+    await Promise.allSettled(Array.from(userTokens.values()).map(async (token) => {
+      try {
+        const joinResponse = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${token.userId}`, {
+          method: "PUT",
+          headers: {
+            "Authorization": `Bot ${botData.botToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            access_token: token.access_token,
+          }),
+        });
+
+        if (joinResponse.ok) {
+          successfulJoins++;
+        } else {
+          failedJoins++;
+        }
+      } catch (error) {
+        failedJoins++;
+      }
+    }));
+
+    return new Response(
+      `Successfully joined: ${successfulJoins}, Failed to join: ${failedJoins}`
+    );
   }
 
   return new Response("Not Found", { status: 404 });
