@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-// アプリ設定
 const config = {
   CLIENT_ID: "",
   CLIENT_SECRET: "",
@@ -23,7 +22,60 @@ function htmlTemplate(body: string): string {
     <html lang="ja">
     <head>
       <meta charset="UTF-8">
-      <title>管理ページ</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Discord 認証システム</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          min-height: 100vh;
+          background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
+          color: #333;
+        }
+        h1 {
+          color: #fff;
+        }
+        a {
+          color: #fff;
+          text-decoration: none;
+          background-color: #007bff;
+          padding: 10px 20px;
+          border-radius: 5px;
+          transition: background-color 0.3s ease;
+        }
+        a:hover {
+          background-color: #0056b3;
+        }
+        ul {
+          list-style-type: none;
+          padding: 0;
+        }
+        li {
+          margin-bottom: 10px;
+        }
+        img {
+          border-radius: 50%;
+        }
+        .success {
+          animation: fadeIn 2s ease-in-out;
+          text-align: center;
+        }
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      </style>
     </head>
     <body>
       ${body}
@@ -37,7 +89,6 @@ async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   if (url.pathname === "/joinserver" && req.method === "GET") {
-    // 認証済みユーザー一覧のHTML生成
     const userListHtml = authenticatedUsers
       .map((user) => `
         <li>
@@ -45,7 +96,9 @@ async function handler(req: Request): Promise<Response> {
           <img src="https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png" alt="Avatar" width="50"><br>
           <ul>
             ${user.guilds
-              .map((guild) => `<li>${guild.name} (ID: ${guild.id})</li>`)
+              .map(
+                (guild) => `<li>${guild.name} (ID: ${guild.id})</li>`
+              )
               .join("")}
           </ul>
         </li>
@@ -54,73 +107,24 @@ async function handler(req: Request): Promise<Response> {
 
     const body = `
       <h1>認証済みユーザー一覧</h1>
-      <ul>${userListHtml || "<p>まだ認証されたユーザーはいません。</p>"}</ul>
+      <ul>
+        ${userListHtml || "<p>まだ認証されたユーザーはいません。</p>"}
+      </ul>
     `;
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
-
-  } else if (url.pathname === "/kanri" && req.method === "GET") {
-    // 認証用のURLを生成
-    const authUrl =
-      config.CLIENT_ID && config.REDIRECT_URI
-        ? `https://discord.com/oauth2/authorize?client_id=${config.CLIENT_ID}&redirect_uri=${encodeURIComponent(
-            config.REDIRECT_URI
-          )}&response_type=code&scope=identify%20guilds`
-        : null;
-
+  } else if (url.pathname === "/auth" && req.method === "GET") {
     const body = `
-      <h1>設定情報を入力</h1>
-      <form action="/save-config" method="POST">
-        <label for="CLIENT_ID">Discord Client ID</label>
-        <input type="text" name="CLIENT_ID" value="${config.CLIENT_ID}" required><br>
-
-        <label for="CLIENT_SECRET">Discord Client Secret</label>
-        <input type="text" name="CLIENT_SECRET" value="${config.CLIENT_SECRET}" required><br>
-
-        <label for="REDIRECT_URI">Redirect URI</label>
-        <input type="text" name="REDIRECT_URI" value="${config.REDIRECT_URI}" required><br>
-
-        <button type="submit">設定を保存</button>
-      </form>
-      ${authUrl ? `<p><a href="${authUrl}">Discord認証を開始</a></p>` : ""}
+      <div class="success">
+        <h1>認証に成功しました！！</h1>
+        <p>ようこそ！認証が完了しました。</p>
+        <p><a href="/joinserver">認証済みユーザー一覧を見る</a></p>
+      </div>
     `;
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
-
-  } else if (url.pathname === "/save-config" && req.method === "POST") {
-    try {
-      const formData = await req.formData();
-      const clientId = formData.get("CLIENT_ID") || "";
-      const clientSecret = formData.get("CLIENT_SECRET") || "";
-      const redirectUri = formData.get("REDIRECT_URI") || "";
-
-      if (!clientId || !clientSecret || !redirectUri) {
-        throw new Error("設定情報が不完全です。すべてのフィールドを入力してください。");
-      }
-
-      // 設定を保存
-      config.CLIENT_ID = String(clientId);
-      config.CLIENT_SECRET = String(clientSecret);
-      config.REDIRECT_URI = String(redirectUri);
-
-      return new Response("", {
-        status: 303,
-        headers: { Location: "/kanri" },
-      });
-    } catch (error) {
-      console.error("設定保存時にエラーが発生しました:", error);
-      const body = `
-        <h1>エラー</h1>
-        <p>設定保存時にエラーが発生しました: ${error.message}</p>
-        <p><a></a></p>
-      `;
-      return new Response(htmlTemplate(body), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    }
-
   } else if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
     const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI } = config;
@@ -132,10 +136,11 @@ async function handler(req: Request): Promise<Response> {
     }
 
     try {
-      // トークン取得
       const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
         body: new URLSearchParams({
           client_id: CLIENT_ID,
           client_secret: CLIENT_SECRET,
@@ -144,23 +149,32 @@ async function handler(req: Request): Promise<Response> {
           redirect_uri: REDIRECT_URI,
         }),
       });
-      const tokenData = await tokenRes.json();
-      if (tokenData.error) throw new Error(tokenData.error_description);
 
-      // ユーザー情報取得
+      const tokenData = await tokenRes.json();
+
+      if (tokenData.error) {
+        throw new Error("認証に失敗しました: " + tokenData.error_description);
+      }
+
       const userRes = await fetch("https://discord.com/api/v10/users/@me", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
       });
+
       const userData = await userRes.json();
 
-      // サーバー情報取得
       const guildsRes = await fetch(
         "https://discord.com/api/v10/users/@me/guilds",
-        { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+          },
+        }
       );
+
       const guildsData = await guildsRes.json();
 
-      // 認証済みユーザーリストに追加
       authenticatedUsers.push({
         username: userData.username,
         discriminator: userData.discriminator,
@@ -172,23 +186,21 @@ async function handler(req: Request): Promise<Response> {
         })),
       });
 
+      // 認証成功ページへリダイレクト
       return new Response("", {
         status: 303,
-        headers: { Location: "/joinserver" },
+        headers: { Location: "/auth" },
       });
     } catch (error) {
       console.error("OAuth2認証エラー:", error);
-      const body = `
-        <h1>エラー</h1>
-        <p>${error.message}</p>
-      `;
-      return new Response(htmlTemplate(body), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return new Response(
+        htmlTemplate(`<h1>エラー</h1><p>${error.message}</p>`),
+        { headers: { "Content-Type": "text/html; charset=utf-8" } }
+      );
     }
+  } else {
+    return new Response("Not Found", { status: 404 });
   }
-
-  return new Response("Not Found", { status: 404 });
 }
 
 // サーバー起動
