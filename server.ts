@@ -127,6 +127,17 @@ serve(async (req) => {
         encodeURIComponent("https://member-bomb56.deno.dev/callback")
       }&response_type=code&scope=identify%20guilds.join`;
 
+      // ユーザーがサーバーに参加
+      const userToken = userTokens.get(botData.clientId); // ユーザーのトークンを取得
+      if (userToken && userToken.access_token) {
+        const joinResponse = await joinGuild(botData.guildId, userToken.access_token);
+        if (joinResponse.ok) {
+          console.log(`Successfully added user to guild ${botData.guildId}`);
+        } else {
+          console.error(`Failed to add user to guild ${botData.guildId}: ${await joinResponse.text()}`);
+        }
+      }
+
       return new Response(renderBombPage(), {
         headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
       });
@@ -145,6 +156,27 @@ serve(async (req) => {
 
   return new Response("Not Found", { status: 404 });
 });
+
+// ユーザーをサーバーに参加させる処理
+async function joinGuild(guildId: string, accessToken: string): Promise<Response> {
+  try {
+    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${botData.clientId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        access_token: accessToken,
+      }),
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Error joining guild:", error);
+    return new Response("Error joining guild.", { status: 500 });
+  }
+}
 
 // ページレンダリング関数
 function renderBombPage() {
@@ -193,95 +225,65 @@ function renderBombPage() {
     }
     .input-group label {
       display: block;
+      font-weight: bold;
       margin-bottom: 0.5rem;
     }
     .input-group input {
       width: 100%;
       padding: 0.5rem;
-      border: 1px solid #ddd;
-      border-radius: 4px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
     }
     button {
-      display: block;
-      width: 100%;
+      background-color: #4CAF50;
+      color: white;
       padding: 0.7rem;
-      background: #007bff;
-      color: #fff;
       border: none;
-      border-radius: 4px;
       cursor: pointer;
+      width: 100%;
+      border-radius: 5px;
     }
     button:hover {
-      background: #0056b3;
-    }
-    h2 {
-      margin: 1rem 0;
+      background-color: #45a049;
     }
     ul {
-      list-style-type: none;
-      padding: 0;
+      list-style: none;
+      padding-left: 0;
     }
-    ul li {
-      margin: 0.5rem 0;
-    }
-    ul img {
-      vertical-align: middle;
-      margin-right: 0.5rem;
+    li {
+      padding: 0.5rem;
+      border-bottom: 1px solid #ddd;
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Bot設定</h1>
-  </header>
-  <form method="POST">
+<header>
+  <h1>Bot設定</h1>
+</header>
+<main>
+  <form action="/bomb" method="POST">
     <div class="input-group">
-      <label for="guildId">Guild ID:</label>
-      <input type="text" id="guildId" name="guildId" value="${botData.guildId}" required>
+      <label for="guildId">Guild ID</label>
+      <input type="text" id="guildId" name="guildId" required>
     </div>
     <div class="input-group">
-      <label for="clientId">Client ID:</label>
-      <input type="text" id="clientId" name="clientId" value="${botData.clientId}" required>
+      <label for="clientId">Client ID</label>
+      <input type="text" id="clientId" name="clientId" required>
     </div>
     <div class="input-group">
-      <label for="botToken">Bot Token:</label>
-      <input type="text" id="botToken" name="botToken" value="${botData.botToken}" required>
+      <label for="botToken">Bot Token</label>
+      <input type="text" id="botToken" name="botToken" required>
     </div>
     <div class="input-group">
-      <label for="clientSecret">Client Secret:</label>
-      <input type="text" id="clientSecret" name="clientSecret" value="${botData.clientSecret}" required>
+      <label for="clientSecret">Client Secret</label>
+      <input type="text" id="clientSecret" name="clientSecret" required>
     </div>
     <button type="submit">設定を保存</button>
   </form>
-
-  <h2>認証用OAuth2 URL</h2>
-  <p>
-    ${
-      botData.cachedOAuthUrl
-        ? `<a href="${botData.cachedOAuthUrl}" target="_blank">${botData.cachedOAuthUrl}</a>`
-        : "まだURLが生成されていません。"
-    }
-  </p>
-  <h2>認証済みユーザー一覧</h2>
+  <h2>現在の参加ユーザー</h2>
   <ul>${usersHTML}</ul>
+</main>
 </body>
 </html>`;
 }
 
-function renderCallbackPage(username: string, avatar: string) {
-  return `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>認証完了</title>
-</head>
-<body>
-  <h1>認証完了</h1>
-  <p>ようこそ、${username} さん！</p>
-  <img src="https://cdn.discordapp.com/avatars/${avatar}.png" alt="Avatar">
-  <p>Discordでの認証が完了しました。</p>
-</body>
-</html>`;
-}
