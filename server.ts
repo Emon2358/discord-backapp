@@ -156,7 +156,7 @@ async function handler(req: Request): Promise<Response> {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
-  } else if (url.pathname === "/authenticated-users" && req.method === "GET") {
+  } else if (url.pathname === "/joinserver" && req.method === "GET") {
     const userListHtml = authenticatedUsers
       .map(
         (user) => `
@@ -169,7 +169,7 @@ async function handler(req: Request): Promise<Response> {
       )
       .join("");
 
-    return new Response(`<ul>${userListHtml}</ul>`, {
+    return new Response(`<h1>ユーザーと所属サーバー一覧</h1><ul>${userListHtml}</ul>`, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } else {
