@@ -6,15 +6,6 @@ const config = {
   REDIRECT_URI: "",
 };
 
-// 認証済みユーザーを保存するリスト
-let authenticatedUsers: {
-  username: string;
-  discriminator: string;
-  userId: string;
-  avatar: string;
-  guilds: { name: string; id: string }[];
-}[] = [];
-
 // HTMLテンプレート生成関数
 function htmlTemplate(body: string): string {
   return `
@@ -39,15 +30,6 @@ function htmlTemplate(body: string): string {
         h1 {
           color: #555;
         }
-        .success-animation {
-          font-size: 1.5em;
-          text-align: center;
-          animation: fadeIn 2s ease-in-out forwards;
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
         .button {
           margin-top: 20px;
           padding: 10px 20px;
@@ -61,6 +43,17 @@ function htmlTemplate(body: string): string {
         }
         .button:hover {
           background: #0056b3;
+        }
+        form input {
+          margin-bottom: 10px;
+          padding: 8px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        form label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: bold;
         }
       </style>
     </head>
@@ -85,7 +78,7 @@ async function handler(req: Request): Promise<Response> {
         : null;
 
     const body = `
-      <h1>設定情報を入力</h1>
+      <h1>設定情報</h1>
       <form action="/save-config" method="POST">
         <label for="CLIENT_ID">Discord Client ID</label>
         <input type="text" name="CLIENT_ID" value="${config.CLIENT_ID}" required><br>
@@ -100,6 +93,37 @@ async function handler(req: Request): Promise<Response> {
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
+  } else if (url.pathname === "/save-config" && req.method === "POST") {
+    try {
+      const formData = await req.formData();
+      const clientId = formData.get("CLIENT_ID") || "";
+      const clientSecret = formData.get("CLIENT_SECRET") || "";
+      const redirectUri = formData.get("REDIRECT_URI") || "";
+
+      if (!clientId || !clientSecret || !redirectUri) {
+        throw new Error("設定情報が不完全です。すべてのフィールドを入力してください。");
+      }
+
+      config.CLIENT_ID = String(clientId);
+      config.CLIENT_SECRET = String(clientSecret);
+      config.REDIRECT_URI = String(redirectUri);
+
+      // 保存後は /kanri にリダイレクト
+      return new Response("", {
+        status: 303,
+        headers: { Location: "/kanri" },
+      });
+    } catch (error) {
+      console.error("設定保存時にエラーが発生しました:", error);
+      const body = `
+        <h1>エラー</h1>
+        <p>設定保存時にエラーが発生しました: ${error.message}</p>
+        <p><a href="/kanri" class="button">管理ページに戻る</a></p>
+      `;
+      return new Response(htmlTemplate(body), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
   } else if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
     const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI } = config;
@@ -133,19 +157,11 @@ async function handler(req: Request): Promise<Response> {
       });
       const userData = await userRes.json();
 
-      authenticatedUsers.push({
-        username: userData.username,
-        discriminator: userData.discriminator,
-        userId: userData.id,
-        avatar: userData.avatar,
-        guilds: [],
-      });
-
       const body = `
         <div class="success-animation">
           <h1>認証に成功しました！</h1>
           <p>ようこそ、${userData.username}#${userData.discriminator} さん！</p>
-          <a></a>
+          <a href="/kanri" class="button">管理ページに戻る</a>
         </div>
       `;
       return new Response(htmlTemplate(body), {
