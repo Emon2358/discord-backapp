@@ -1,4 +1,9 @@
-import { Application, Router, Context } from "https://deno.land/x/oak/mod.ts";
+// deno-lint-ignore-file no-unused-vars no-explicit-any
+import {
+  Application,
+  Router,
+  Context,
+} from "https://deno.land/x/oak@v17.1.3/mod.ts";
 
 const config = {
   CLIENT_ID: "",
@@ -35,13 +40,15 @@ router.get("/kanri", (ctx) => {
 // 設定保存処理
 router.post("/save-config", async (ctx) => {
   try {
-    const body = await ctx.request.body({ type: "form" }).value;  // 正しいボディの取得方法
+    const body = await ctx.request.body({ type: "form" }).value; // 正しいボディの取得方法
     const clientId = body.get("CLIENT_ID") || "";
     const clientSecret = body.get("CLIENT_SECRET") || "";
     const redirectUri = body.get("REDIRECT_URI") || "";
 
     if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error("設定情報が不完全です。すべてのフィールドを入力してください。");
+      throw new Error(
+        "設定情報が不完全です。すべてのフィールドを入力してください。"
+      );
     }
 
     config.CLIENT_ID = clientId;
@@ -103,11 +110,14 @@ router.get("/callback", async (ctx) => {
     const userData = await userRes.json();
 
     // サーバー情報取得
-    const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-      },
-    });
+    const guildsRes = await fetch(
+      "https://discord.com/api/v10/users/@me/guilds",
+      {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+      }
+    );
 
     const guildsData = await guildsRes.json();
 
@@ -116,15 +126,21 @@ router.get("/callback", async (ctx) => {
         <body>
           <h1>認証成功</h1>
           <p>ユーザー名: ${userData.username}#${userData.discriminator}</p>
-          <img src="https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png" alt="User Avatar"><br><br>
+          <img src="https://cdn.discordapp.com/avatars/${userData.id}/${
+      userData.avatar
+    }.png" alt="User Avatar"><br><br>
 
           <h2>参加しているサーバー:</h2>
           <ul>
-            ${guildsData.map((guild: any) => `
+            ${guildsData
+              .map(
+                (guild: any) => `
               <li>
                 <strong>${guild.name}</strong> (ID: ${guild.id})
               </li>
-            `).join('')}
+            `
+              )
+              .join("")}
           </ul>
 
           <p><a href="/kanri">管理ページに戻る</a></p>
@@ -142,3 +158,4 @@ app.use(router.routes());
 app.use(router.allowedMethods());
 console.log("サーバーがポート8000で起動しました");
 await app.listen({ port: 8000 });
+
