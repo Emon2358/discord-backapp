@@ -1,197 +1,161 @@
-// deno-lint-ignore-file no-explicit-any
-import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
+// deno-lint-ignore-file no-explicit-any prefer-const ban-unused-ignore
+// deno-lint-ignore no-unused-vars
+import {
+  Application,
+  Router,
+  // deno-lint-ignore no-unused-vars
+  Context,
+} from "https://deno.land/x/oak@v17.1.3/mod.ts";
 
-// メモリ内ストレージ
-const botData: { 
-  guildId: string; 
-  clientId: string;
-  botToken: string; 
-  clientSecret: string 
-} = { 
-  guildId: "", 
-  clientId: "",
-  botToken: "", 
-  clientSecret: "" 
+// 設定情報を保存するためのオブジェクト
+let config = {
+  CLIENT_ID: "",
+  CLIENT_SECRET: "",
+  REDIRECT_URI: "",
 };
 
-const userTokens = new Map<string, any>();
+// ユーザーが参加しているサーバー情報を保存
+// deno-lint-ignore no-unused-vars
+let userGuilds: any[] = [];
 
-// HTMLテンプレート
-const bombPage = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bomb Settings</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-    .input-group { margin-bottom: 15px; }
-    .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-    .input-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-    button { background-color: #7289da; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
-    button:hover { background-color: #5b6eae; }
-    .status { margin-top: 10px; padding: 10px; border-radius: 4px; }
-    .error { background-color: #ffebee; color: #c62828; }
-    .success { background-color: #e8f5e9; color: #2e7d32; }
-  </style>
-</head>
-<body>
-  <h1>Configure Bot</h1>
-  <form action="/bomb" method="POST">
-    <div class="input-group"><label for="guildId">Guild ID:</label><input type="text" id="guildId" name="guildId" required></div>
-    <div class="input-group"><label for="clientId">Client ID:</label><input type="text" id="clientId" name="clientId" required></div>
-    <div class="input-group"><label for="botToken">Bot Token:</label><input type="text" id="botToken" name="botToken" required></div>
-    <div class="input-group"><label for="clientSecret">Client Secret:</label><input type="text" id="clientSecret" name="clientSecret" required></div>
-    <button type="submit">Save Settings</button>
-  </form>
-  
-  <h2>Generated OAuth2 URL</h2>
-  <p id="authUrl">Please save your settings first!</p>
+// アプリケーションとルーターを初期化
+const app = new Application();
+const router = new Router();
 
-  <h2>Join All Users</h2>
-  <button id="joinAllBtn" onclick="joinAll()">Join All Users to the Guild</button>
-  <div id="status" class="status"></div>
-
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      fetch("/auth-url")
-        .then((res) => res.text())
-        .then((url) => {
-          if (url.startsWith('http')) {
-            document.getElementById("authUrl").innerHTML = \`<a href="\${url}" target="_blank">Click to Authenticate</a>\`;
-          } else {
-            document.getElementById("authUrl").textContent = url;
-          }
-        })
-        .catch((error) => {
-          document.getElementById("authUrl").textContent = "Unable to fetch OAuth2 URL: " + error.message;
-        });
-    });
-
-    function joinAll() {
-      const statusElement = document.getElementById("status");
-      statusElement.textContent = "Processing...";
-      statusElement.className = "status";
-
-      fetch('/join-all', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-        .then(response => {
-          if (!response.ok) throw new Error('Network response was not ok');
-          return response.text();
-        })
-        .then(result => {
-          statusElement.textContent = result;
-          statusElement.className = "status success";
-        })
-        .catch(error => {
-          statusElement.textContent = 'Failed to join guild: ' + error.message;
-          statusElement.className = "status error";
-        });
-    }
-  </script>
-</body>
-</html>
-`;
-
-// トークンを交換
-async function exchangeToken(code: string): Promise<any> {
-  try {
-    const response = await fetch("https://discord.com/api/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: botData.clientId,
-        client_secret: botData.clientSecret,
-        grant_type: "authorization_code",
-        code: code,
-        redirect_uri: "https://member-bomb56.deno.dev/callback",
-      }),
-    });
-
-    if (!response.ok) throw new Error(`Token exchange failed: ${response.status} ${await response.text()}`);
-    return await response.json();
-  } catch (error) {
-    console.error("Exchange token error:", error);
-    throw error;
-  }
+// Discord OAuth2 URL生成
+function generateDiscordOAuth2URL() {
+  const scope = encodeURIComponent("identify guilds");
+  return `https://discord.com/api/oauth2/authorize?client_id=${
+    config.CLIENT_ID
+  }&redirect_uri=${encodeURIComponent(
+    config.REDIRECT_URI
+  )}&response_type=code&scope=${scope}`;
 }
 
-// サーバーに参加させる
-async function addUserToGuild(accessToken: string, guildId: string) {
-  try {
-    // ユーザー情報取得
-    const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+// トークン取得関数
+async function getToken(code: string) {
+  const body = new URLSearchParams({
+    client_id: config.CLIENT_ID,
+    client_secret: config.CLIENT_SECRET,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: config.REDIRECT_URI,
+  });
 
-    if (!userResponse.ok) throw new Error(`Failed to get user info: ${await userResponse.text()}`);
+  const response = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
 
-    const userData = await userResponse.json();
-    const userId = userData.id;
-
-    // ギルド参加
-    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bot ${botData.botToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ access_token: accessToken }),
-    });
-
-    if (!response.ok) throw new Error(`Failed to join guild: ${response.status} ${await response.text()}`);
-    return response;
-  } catch (error) {
-    console.error("Add to guild error:", error);
-    throw error;
+  if (!response.ok) {
+    throw new Error("Failed to fetch token");
   }
+
+  return await response.json();
 }
 
-// サーバー起動
-serve(async (req) => {
-  const url = new URL(req.url);
+// ユーザーの参加サーバー情報を取得
+async function getUserGuilds(token: string) {
+  const response = await fetch("https://discord.com/api/users/@me/guilds", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 
-  if (url.pathname === "/bomb" && req.method === "GET") {
-    return new Response(bombPage, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
+  if (!response.ok) {
+    throw new Error("Failed to fetch guilds");
   }
 
-  if (url.pathname === "/bomb" && req.method === "POST") {
-    const body = new TextDecoder().decode(await req.arrayBuffer());
-    const params = new URLSearchParams(body);
-    const required = ["guildId", "clientId", "botToken", "clientSecret"];
-    for (const key of required) if (!params.get(key)) throw new Error(`Missing ${key}`);
-    Object.assign(botData, Object.fromEntries(params));
-    return new Response("Settings saved!");
-  }
+  return await response.json();
+}
 
-  if (url.pathname === "/auth-url") {
-    if (!Object.values(botData).every(Boolean)) return new Response("Incomplete settings", { status: 400 });
-    const state = crypto.randomUUID();
-    const url = `https://discord.com/api/oauth2/authorize?client_id=${botData.clientId}&redirect_uri=${encodeURIComponent("https://member-bomb56.deno.dev/callback")}&response_type=code&scope=identify%20guilds.join&state=${state}`;
-    return new Response(url);
-  }
+// `/kanri`ページ - 設定フォームと情報表示
+router.get("/kanri", (ctx) => {
+  ctx.response.body = `
+    <html>
+      <head><title>管理ページ</title></head>
+      <body>
+        <h1>設定情報を入力してください</h1>
+        <form method="POST" action="/save-config">
+          <label for="client_id">Client ID:</label><br />
+          <input type="text" id="client_id" name="CLIENT_ID" value="${
+            config.CLIENT_ID
+          }" /><br /><br />
+          
+          <label for="client_secret">Client Secret:</label><br />
+          <input type="text" id="client_secret" name="CLIENT_SECRET" value="${
+            config.CLIENT_SECRET
+          }" /><br /><br />
+          
+          <label for="redirect_uri">Redirect URI:</label><br />
+          <input type="text" id="redirect_uri" name="REDIRECT_URI" value="${
+            config.REDIRECT_URI
+          }" /><br /><br />
+          
+          <button type="submit">保存</button>
+        </form>
 
-  if (url.pathname === "/callback") {
-    const code = url.searchParams.get("code");
-    if (!code) return new Response("Missing code", { status: 400 });
-    try {
-      const token = await exchangeToken(code);
-      userTokens.set(code, token);
-      return new Response("Authenticated!");
-    } catch (error) {
-      return new Response("Authentication failed: " + error.message, { status: 500 });
-    }
-  }
+        <h2>現在の設定</h2>
+        <p><strong>Client ID:</strong> ${config.CLIENT_ID}</p>
+        <p><strong>Client Secret:</strong> ${
+          config.CLIENT_SECRET ? "*****" : ""
+        }</p>
+        <p><strong>Redirect URI:</strong> ${config.REDIRECT_URI}</p>
 
-  if (url.pathname === "/join-all" && req.method === "POST") {
-    try {
-      const results = await Promise.allSettled([...userTokens.values()].map(token => addUserToGuild(token.access_token, botData.guildId)));
-      const summary = results.map(r => r.status === "fulfilled" ? "✅" : `❌ ${r.reason}`).join("\n");
-      return new Response(summary);
-    } catch (error) {
-      return new Response("Failed to process: " + error.message, { status: 500 });
-    }
-  }
-
-  return new Response("Not Found", { status: 404 });
+        <h2>Discord OAuth2リンク</h2>
+        <a href="${generateDiscordOAuth2URL()}">認証ページを開く</a>
+      </body>
+    </html>
+  `;
 });
+
+// 設定情報を保存するPOSTハンドラー
+router.post("/save-config", async (ctx) => {
+  const body = ctx.request.body({ type: "form" });
+  const values = await body.value;
+
+  config.CLIENT_ID = values.get("CLIENT_ID") || "";
+  config.CLIENT_SECRET = values.get("CLIENT_SECRET") || "";
+  config.REDIRECT_URI = values.get("REDIRECT_URI") || "";
+
+  ctx.response.redirect("/kanri");
+});
+
+// Discord認証後のコールバック処理
+router.get("/callback", async (ctx) => {
+  const code = ctx.request.url.searchParams.get("code");
+
+  if (!code) {
+    ctx.response.body = "認証コードが見つかりませんでした。";
+    return;
+  }
+
+  try {
+    const tokenData = await getToken(code);
+    const guilds = await getUserGuilds(tokenData.access_token);
+    userGuilds = guilds;
+
+    ctx.response.body = `
+      <html>
+        <head><title>認証成功</title></head>
+        <body>
+          <h1>認証が成功しました！</h1>
+          <p>以下は参加しているサーバーの情報です。</p>
+          <ul>
+            ${guilds.map((guild: any) => `<li>${guild.name}</li>`).join("")}
+          </ul>
+          <a href="/kanri">管理ページに戻る</a>
+        </body>
+      </html>
+    `;
+  } catch (error) {
+    ctx.response.body = "エラーが発生しました: " + error.message;
+  }
+});
+
+// ルーターをアプリケーションに適用
+app.use(router.routes());
+app.use(router.allowedMethods());
+
+// サーバーを起動
+console.log("Listening on http://localhost:8000");
+await app.listen({ port: 8000 });
