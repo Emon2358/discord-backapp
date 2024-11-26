@@ -1,73 +1,62 @@
+// deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
-import { readFileStr, writeFileStr, exists } from "https://deno.land/std@0.197.0/fs/mod.ts";
 
+// ファイルパス
 const CONFIG_FILE = "./config.json";
-const USERS_FILE = "./authenticated_users.json";
+const USERS_FILE = "./users.json";
 
-let config = {
-  CLIENT_ID: "",
-  CLIENT_SECRET: "",
-  REDIRECT_URI: "",
-  AUTH_URL: "",
-};
+// 設定とユーザー情報
+let config: Record<string, string> = {};
+let authenticatedUsers: Array<any> = [];
 
-let authenticatedUsers: {
-  username: string;
-  discriminator: string;
-  userId: string;
-  avatar: string;
-  guilds: { name: string; id: string }[];
-}[] = [];
-
-// ファイルの読み込みと保存
-async function saveConfig() {
-  await writeFileStr(CONFIG_FILE, JSON.stringify(config, null, 2));
+// ファイル読み込み・書き込み関数
+async function loadConfig() {
+  try {
+    const data = await Deno.readTextFile(CONFIG_FILE);
+    config = JSON.parse(data);
+  } catch (error) {
+    console.error("設定ファイルの読み込みエラー:", error);
+    config = {};
+  }
 }
 
-async function loadConfig() {
-  if (await exists(CONFIG_FILE)) {
-    config = JSON.parse(await readFileStr(CONFIG_FILE));
+async function saveConfig() {
+  try {
+    await Deno.writeTextFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+  } catch (error) {
+    console.error("設定ファイルの保存エラー:", error);
+  }
+}
+
+async function loadUsers() {
+  try {
+    const data = await Deno.readTextFile(USERS_FILE);
+    authenticatedUsers = JSON.parse(data);
+  } catch (error) {
+    console.error("ユーザーファイルの読み込みエラー:", error);
+    authenticatedUsers = [];
   }
 }
 
 async function saveUsers() {
-  await writeFileStr(USERS_FILE, JSON.stringify(authenticatedUsers, null, 2));
-}
-
-async function loadUsers() {
-  if (await exists(USERS_FILE)) {
-    authenticatedUsers = JSON.parse(await readFileStr(USERS_FILE));
+  try {
+    await Deno.writeTextFile(USERS_FILE, JSON.stringify(authenticatedUsers, null, 2));
+  } catch (error) {
+    console.error("ユーザーファイルの保存エラー:", error);
   }
 }
 
-// HTMLテンプレート生成
-function htmlTemplate(body: string): string {
-  return `
-    <!DOCTYPE html>
-    <html lang="ja">
-    <head>
-      <meta charset="UTF-8">
-      <title>管理ページ</title>
-    </head>
-    <body>
-      ${body}
-    </body>
-    </html>
-  `;
-}
-
-// リクエストハンドラ
+// メインハンドラー
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  if (url.pathname === "/kanri" && req.method === "GET") {
+  if (url.pathname === "/kanri") {
     const authUrl =
-      config.AUTH_URL ||
-      (config.CLIENT_ID && config.REDIRECT_URI
+      config.CLIENT_ID && config.REDIRECT_URI
         ? `https://discord.com/oauth2/authorize?client_id=${config.CLIENT_ID}&redirect_uri=${encodeURIComponent(
             config.REDIRECT_URI
           )}&response_type=code&scope=identify%20guilds`
-        : null);
+        : null;
 
     if (authUrl && !config.AUTH_URL) {
       config.AUTH_URL = authUrl;
@@ -90,7 +79,7 @@ async function handler(req: Request): Promise<Response> {
       </form>
       ${authUrl ? `<p><a href="${authUrl}">Discord認証を開始</a></p>` : ""}
     `;
-    return new Response(htmlTemplate(body), {
+    return new Response(body, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } else if (url.pathname === "/save-config" && req.method === "POST") {
@@ -111,7 +100,7 @@ async function handler(req: Request): Promise<Response> {
       return new Response("", { status: 303, headers: { Location: "/kanri" } });
     } catch (error) {
       console.error("設定保存エラー:", error);
-      return new Response(htmlTemplate(`<p>エラー: ${error.message}</p>`), {
+      return new Response(`<p>エラー: ${error.message}</p>`, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
@@ -163,7 +152,7 @@ async function handler(req: Request): Promise<Response> {
       return new Response("", { status: 303, headers: { Location: "/kanri" } });
     } catch (error) {
       console.error("認証エラー:", error);
-      return new Response(htmlTemplate(`<p>エラー: ${error.message}</p>`), {
+      return new Response(`<p>エラー: ${error.message}</p>`, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
@@ -180,7 +169,7 @@ async function handler(req: Request): Promise<Response> {
       )
       .join("");
 
-    return new Response(htmlTemplate(`<ul>${userListHtml}</ul>`), {
+    return new Response(`<ul>${userListHtml}</ul>`, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } else {
