@@ -6,13 +6,27 @@ const config = {
   REDIRECT_URI: "",
 };
 
+// 認証状態を保存する簡易ストレージ
+let authState: {
+  username?: string;
+  discriminator?: string;
+  userId?: string;
+  avatar?: string;
+  guilds?: { name: string; id: string }[];
+} = {};
+
 // HTMLテンプレート生成関数
 function htmlTemplate(body: string): string {
   return `
-    <html>
-      <body>
-        ${body}
-      </body>
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <title>管理ページ</title>
+    </head>
+    <body>
+      ${body}
+    </body>
     </html>
   `;
 }
@@ -22,7 +36,36 @@ async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   if (url.pathname === "/kanri" && req.method === "GET") {
-    // 管理ページ
+    // 認証用のURLを生成
+    const authUrl =
+      config.CLIENT_ID && config.REDIRECT_URI
+        ? `https://discord.com/oauth2/authorize?client_id=${config.CLIENT_ID}&redirect_uri=${encodeURIComponent(
+            config.REDIRECT_URI
+          )}&response_type=code&scope=identify%20guilds`
+        : null;
+
+    // 管理ページのHTML生成
+    const userSection = authState.username
+      ? `
+        <h2>ユーザー情報</h2>
+        <p>ユーザー名: ${authState.username}#${authState.discriminator}</p>
+        <img src="https://cdn.discordapp.com/avatars/${authState.userId}/${authState.avatar}.png" alt="User Avatar"><br><br>
+        
+        <h2>参加しているサーバー</h2>
+        <ul>
+          ${authState.guilds
+            ?.map(
+              (guild) => `
+            <li>
+              <strong>${guild.name}</strong> (ID: ${guild.id})
+            </li>
+          `
+            )
+            .join("") || "サーバー情報がありません。"}
+        </ul>
+      `
+      : `<p>まだ認証されていません。</p>`;
+
     const body = `
       <h1>設定情報を入力</h1>
       <form action="/save-config" method="POST">
@@ -37,9 +80,11 @@ async function handler(req: Request): Promise<Response> {
 
         <button type="submit">設定を保存</button>
       </form>
+      ${authUrl ? `<p><a href="${authUrl}">Discord認証を開始</a></p>` : ""}
+      ${userSection}
     `;
     return new Response(htmlTemplate(body), {
-      headers: { "Content-Type": "text/html" },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } else if (url.pathname === "/save-config" && req.method === "POST") {
     try {
@@ -70,7 +115,7 @@ async function handler(req: Request): Promise<Response> {
         <p><a href="/kanri">管理ページに戻る</a></p>
       `;
       return new Response(htmlTemplate(body), {
-        headers: { "Content-Type": "text/html" },
+        headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
   } else if (url.pathname === "/callback" && req.method === "GET") {
@@ -79,7 +124,7 @@ async function handler(req: Request): Promise<Response> {
 
     if (!code || !CLIENT_ID || !CLIENT_SECRET || !REDIRECT_URI) {
       return new Response("必要な情報が不足しています。", {
-        headers: { "Content-Type": "text/plain" },
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
 
@@ -123,33 +168,27 @@ async function handler(req: Request): Promise<Response> {
 
       const guildsData = await guildsRes.json();
 
-      const body = `
-        <h1>認証成功</h1>
-        <p>ユーザー名: ${userData.username}#${userData.discriminator}</p>
-        <img src="https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png" alt="User Avatar"><br><br>
+      // 認証情報を保存
+      authState = {
+        username: userData.username,
+        discriminator: userData.discriminator,
+        userId: userData.id,
+        avatar: userData.avatar,
+        guilds: guildsData.map((guild: any) => ({
+          name: guild.name,
+          id: guild.id,
+        })),
+      };
 
-        <h2>参加しているサーバー:</h2>
-        <ul>
-          ${guildsData
-            .map(
-              (guild: any) => `
-            <li>
-              <strong>${guild.name}</strong> (ID: ${guild.id})
-            </li>
-          `
-            )
-            .join("")}
-        </ul>
-
-        <p><a href="/kanri">管理ページに戻る</a></p>
-      `;
-      return new Response(htmlTemplate(body), {
-        headers: { "Content-Type": "text/html" },
+      // リダイレクト
+      return new Response("", {
+        status: 303,
+        headers: { Location: "/kanri" },
       });
     } catch (error) {
       console.error("OAuth2認証エラー:", error);
       return new Response(`<h1>エラー</h1><p>${error.message}</p>`, {
-        headers: { "Content-Type": "text/html" },
+        headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
   } else {
@@ -160,3 +199,4 @@ async function handler(req: Request): Promise<Response> {
 // サーバー起動
 console.log("サーバーがポート8000で起動しました");
 await serve(handler, { port: 8000 });
+
