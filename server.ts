@@ -1,13 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
-// メモリ内ストレージ
 const botData = { 
   guildId: "", 
   clientId: "",
   botToken: "", 
   clientSecret: "",
-  cachedOAuthUrl: "", // キャッシュされたOAuth2 URL
+  cachedOAuthUrl: "", 
 };
 
 interface TokenData {
@@ -21,97 +20,29 @@ interface TokenData {
 
 const userTokens = new Map<string, TokenData>();
 
-// /bombページのHTMLテンプレート
-const renderBombPage = () => `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bomb Settings</title>
-  <style>
-    /* Styles omitted for brevity */
-  </style>
-</head>
-<body>
-  <h1>Configure Bot</h1>
-  <form action="/bomb" method="POST">
-    <div class="input-group">
-      <label for="guildId">Guild ID:</label>
-      <input type="text" id="guildId" name="guildId" required value="${botData.guildId}">
-    </div>
-    <div class="input-group">
-      <label for="clientId">Client ID:</label>
-      <input type="text" id="clientId" name="clientId" required value="${botData.clientId}">
-    </div>
-    <div class="input-group">
-      <label for="botToken">Bot Token:</label>
-      <input type="text" id="botToken" name="botToken" required value="${botData.botToken}">
-    </div>
-    <div class="input-group">
-      <label for="clientSecret">Client Secret:</label>
-      <input type="text" id="clientSecret" name="clientSecret" required value="${botData.clientSecret}">
-    </div>
-    <button type="submit">Save Settings</button>
-  </form>
-  
-  <h2>Generated OAuth2 URL</h2>
-  <p id="authUrl">
-    ${botData.cachedOAuthUrl 
-      ? `<a href="${botData.cachedOAuthUrl}" target="_blank">Click to Authenticate</a>` 
-      : "No URL generated yet."}
-  </p>
-  <button id="resetOauth2" onclick="resetOauth2()">Reset OAuth2</button>
+// Discord API ヘルパー
+async function fetchDiscordAPI(endpoint: string, method: string, body?: any, token?: string) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const response = await fetch(`https://discord.com/api/v10${endpoint}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    throw new Error(`Discord API error: ${response.statusText}`);
+  }
+  return await response.json();
+}
 
-  <h2>Authenticated Users</h2>
-  <ul id="userList"></ul>
-
-  <h2>Join All Users</h2>
-  <button id="joinAllBtn" onclick="joinAll()">Join All Users to the Guild</button>
-  <div id="status" class="status"></div>
-
-  <script>
-    document.addEventListener("DOMContentLoaded", fetchUsers);
-
-    async function fetchUsers() {
-      try {
-        const response = await fetch('/users');
-        const users = await response.json();
-        const userList = document.getElementById("userList");
-        userList.innerHTML = users.map(u => 
-          \`<li><img src="https://cdn.discordapp.com/avatars/\${u.id}/\${u.avatar}.png" 
-            alt="avatar" width="30"> \${u.username} さん</li>\`).join("");
-      } catch (error) {
-        console.error('Failed to fetch users:', error);
-      }
-    }
-
-    function resetOauth2() {
-      fetch('/reset-oauth2', { method: 'POST' })
-        .then(() => location.reload())
-        .catch(err => console.error('Failed to reset OAuth2:', err));
-    }
-
-    async function joinAll() {
-      const statusElement = document.getElementById("status");
-      statusElement.textContent = "処理中...";
-      try {
-        const response = await fetch('/join-all', { method: 'POST' });
-        const result = await response.text();
-        statusElement.textContent = result;
-      } catch (error) {
-        statusElement.textContent = 'Failed to join guild: ' + error.message;
-      }
-    }
-  </script>
-</body>
-</html>
-`;
-
-// サーバーロジック
 serve(async (req) => {
   const url = new URL(req.url);
 
+  // 設定ページ
   if (url.pathname === "/bomb") {
     if (req.method === "GET") {
       return new Response(renderBombPage(), {
@@ -124,7 +55,6 @@ serve(async (req) => {
       botData.botToken = formData.get("botToken")?.toString() || "";
       botData.clientSecret = formData.get("clientSecret")?.toString() || "";
 
-      // OAuth2 URLを更新
       botData.cachedOAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${botData.clientId}&redirect_uri=${
         encodeURIComponent("https://member-bomb56.deno.dev/callback")
       }&response_type=code&scope=identify%20guilds.join`;
@@ -135,13 +65,70 @@ serve(async (req) => {
     }
   }
 
-  if (url.pathname === "/reset-oauth2" && req.method === "POST") {
-    botData.cachedOAuthUrl = "";
-    return new Response("OAuth2 URL reset successfully.");
+  // コールバック処理
+  if (url.pathname === "/callback") {
+    if (req.method === "GET") {
+      const code = url.searchParams.get("code");
+      if (!code) {
+        return new Response("Missing 'code' in query parameters.", { status: 400 });
+      }
+
+      try {
+        // トークンを取得
+        const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: botData.clientId,
+            client_secret: botData.clientSecret,
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: "https://member-bomb56.deno.dev/callback",
+          }),
+        });
+
+        if (!tokenResponse.ok) {
+          return new Response("Failed to fetch access token.", { status: 500 });
+        }
+
+        const tokenData = await tokenResponse.json();
+        const expiresAt = Date.now() + tokenData.expires_in * 1000;
+
+        // ユーザー情報を取得
+        const userInfo = await fetchDiscordAPI("/users/@me", "GET", undefined, tokenData.access_token);
+
+        // トークンを保存
+        userTokens.set(userInfo.id, {
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+          expires_at: expiresAt,
+          userId: userInfo.id,
+          username: userInfo.username,
+          avatar: userInfo.avatar,
+        });
+
+        return new Response(
+          `<html>
+            <body>
+              <h1>Success!</h1>
+              <p>Logged in as: ${userInfo.username}</p>
+              <a href="/bomb">Go back</a>
+            </body>
+          </html>`,
+          { headers: { "Content-Type": "text/html" } }
+        );
+      } catch (error) {
+        console.error(error);
+        return new Response("An error occurred during OAuth2 flow.", { status: 500 });
+      }
+    }
   }
 
+  // ユーザーリストを返す
   if (url.pathname === "/users") {
-    const users = Array.from(userTokens.values()).map(token => ({
+    const users = Array.from(userTokens.values()).map((token) => ({
       id: token.userId,
       username: token.username,
       avatar: token.avatar,
@@ -151,3 +138,30 @@ serve(async (req) => {
 
   return new Response("Not Found", { status: 404 });
 });
+
+function renderBombPage() {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bomb Settings</title>
+</head>
+<body>
+  <h1>Configure Bot</h1>
+  <form action="/bomb" method="POST">
+    <label>Guild ID: <input name="guildId" value="${botData.guildId}"></label>
+    <label>Client ID: <input name="clientId" value="${botData.clientId}"></label>
+    <label>Bot Token: <input name="botToken" value="${botData.botToken}"></label>
+    <label>Client Secret: <input name="clientSecret" value="${botData.clientSecret}"></label>
+    <button type="submit">Save Settings</button>
+  </form>
+  <h2>OAuth2 URL</h2>
+  <p>
+    ${botData.cachedOAuthUrl ? `<a href="${botData.cachedOAuthUrl}">Authenticate</a>` : "No URL yet."}
+  </p>
+</body>
+</html>
+  `;
+}
