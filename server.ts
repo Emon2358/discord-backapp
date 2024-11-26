@@ -1,12 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.201.0/http/server.ts";
 
-const botData = { 
-  guildId: "", 
+const botData = {
+  guildId: "",
   clientId: "",
-  botToken: "", 
+  botToken: "",
   clientSecret: "",
-  cachedOAuthUrl: "", 
+  cachedOAuthUrl: "", // OAuth2 URLを永続化
 };
 
 interface TokenData {
@@ -20,25 +20,35 @@ interface TokenData {
 
 const userTokens = new Map<string, TokenData>();
 
-// Discord API ヘルパー
-async function fetchDiscordAPI(endpoint: string, method: string, body?: any, token?: string) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  const response = await fetch(`https://discord.com/api/v10${endpoint}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
+// OAuth2トークンリフレッシュ関数
+async function refreshAccessToken(userId: string) {
+  const tokenData = userTokens.get(userId);
+  if (!tokenData || Date.now() < tokenData.expires_at) return tokenData?.access_token;
+
+  const params = new URLSearchParams({
+    client_id: botData.clientId,
+    client_secret: botData.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: tokenData.refresh_token,
   });
-  if (!response.ok) {
-    throw new Error(`Discord API error: ${response.statusText}`);
-  }
-  return await response.json();
+
+  const response = await fetch("https://discord.com/api/v10/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params,
+  });
+
+  if (!response.ok) throw new Error("Failed to refresh access token");
+
+  const refreshedData = await response.json();
+  tokenData.access_token = refreshedData.access_token;
+  tokenData.expires_at = Date.now() + refreshedData.expires_in * 1000;
+  userTokens.set(userId, tokenData);
+
+  return tokenData.access_token;
 }
 
+// サーバーロジック
 serve(async (req) => {
   const url = new URL(req.url);
 
@@ -74,12 +84,9 @@ serve(async (req) => {
       }
 
       try {
-        // トークンを取得
         const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
             client_id: botData.clientId,
             client_secret: botData.clientSecret,
@@ -96,10 +103,11 @@ serve(async (req) => {
         const tokenData = await tokenResponse.json();
         const expiresAt = Date.now() + tokenData.expires_in * 1000;
 
-        // ユーザー情報を取得
-        const userInfo = await fetchDiscordAPI("/users/@me", "GET", undefined, tokenData.access_token);
+        const userInfo = await fetch("https://discord.com/api/v10/users/@me", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        }).then((res) => res.json());
 
-        // トークンを保存
         userTokens.set(userInfo.id, {
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token,
@@ -112,9 +120,12 @@ serve(async (req) => {
         return new Response(
           `<html>
             <body>
-              <h1>Success!</h1>
-              <p>Logged in as: ${userInfo.username}</p>
-              <a href="/bomb">Go back</a>
+              <h1>認証に成功しました！！</h1>
+              <p>
+                <img src="https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png" width="50">
+                ${userInfo.username}さんようこそ！！
+              </p>
+              <a></a>
             </body>
           </html>`,
           { headers: { "Content-Type": "text/html" } }
@@ -126,7 +137,7 @@ serve(async (req) => {
     }
   }
 
-  // ユーザーリストを返す
+  // リアルタイムユーザー表示
   if (url.pathname === "/users") {
     const users = Array.from(userTokens.values()).map((token) => ({
       id: token.userId,
@@ -139,29 +150,31 @@ serve(async (req) => {
   return new Response("Not Found", { status: 404 });
 });
 
+// ページレンダリング
 function renderBombPage() {
+  const usersHTML = Array.from(userTokens.values())
+    .map(
+      (user) =>
+        `<li>
+          <img src="https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png" width="30">
+          ${user.username}
+        </li>`
+    )
+    .join("");
+
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bomb Settings</title>
+  <title>Bot Configuration</title>
 </head>
 <body>
-  <h1>Configure Bot</h1>
-  <form action="/bomb" method="POST">
-    <label>Guild ID: <input name="guildId" value="${botData.guildId}"></label>
-    <label>Client ID: <input name="clientId" value="${botData.clientId}"></label>
-    <label>Bot Token: <input name="botToken" value="${botData.botToken}"></label>
-    <label>Client Secret: <input name="clientSecret" value="${botData.clientSecret}"></label>
-    <button type="submit">Save Settings</button>
+  <h1>Bot Configuration</h1>
+  <form method="POST">
+    <!-- Form -->
   </form>
-  <h2>OAuth2 URL</h2>
-  <p>
-    ${botData.cachedOAuthUrl ? `<a href="${botData.cachedOAuthUrl}">Authenticate</a>` : "No URL yet."}
-  </p>
+  <h2>認証済みユーザー</h2>
+  <ul>${usersHTML}</ul>
 </body>
-</html>
-  `;
+</html>`;
 }
