@@ -88,6 +88,7 @@ function htmlTemplate(body: string): string {
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
+  // /joinserver: 認証済みユーザー一覧を表示
   if (url.pathname === "/joinserver" && req.method === "GET") {
     const userListHtml = authenticatedUsers
       .map((user) => `
@@ -114,6 +115,8 @@ async function handler(req: Request): Promise<Response> {
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
+
+  // /auth: 認証成功後の美しいUI表示
   } else if (url.pathname === "/auth" && req.method === "GET") {
     const body = `
       <div class="success">
@@ -125,6 +128,30 @@ async function handler(req: Request): Promise<Response> {
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
+
+  // /kanri: 管理者専用ページ
+  } else if (url.pathname === "/kanri" && req.method === "GET") {
+    const adminHtml = authenticatedUsers
+      .map((user) => `
+        <li>
+          ${user.username}#${user.discriminator} (ID: ${user.userId})<br>
+          <a href="/remove?id=${user.userId}">ユーザーを削除</a>
+        </li>
+      `)
+      .join("");
+
+    const body = `
+      <h1>管理者専用ページ</h1>
+      <ul>
+        ${adminHtml || "<p>認証されたユーザーがいません。</p>"}
+      </ul>
+      <p><a href="/joinserver">戻る</a></p>
+    `;
+    return new Response(htmlTemplate(body), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+
+  // /callback: Discord OAuth2認証
   } else if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
     const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI } = config;
@@ -198,6 +225,19 @@ async function handler(req: Request): Promise<Response> {
         { headers: { "Content-Type": "text/html; charset=utf-8" } }
       );
     }
+
+  // /remove: ユーザー削除
+  } else if (url.pathname.startsWith("/remove") && req.method === "GET") {
+    const userId = url.searchParams.get("id");
+    if (userId) {
+      authenticatedUsers = authenticatedUsers.filter(
+        (user) => user.userId !== userId
+      );
+    }
+    return new Response("", {
+      status: 303,
+      headers: { Location: "/kanri" },
+    });
   } else {
     return new Response("Not Found", { status: 404 });
   }
