@@ -20,34 +20,6 @@ interface TokenData {
 
 const userTokens = new Map<string, TokenData>();
 
-// OAuth2トークンリフレッシュ関数
-async function refreshAccessToken(userId: string) {
-  const tokenData = userTokens.get(userId);
-  if (!tokenData || Date.now() < tokenData.expires_at) return tokenData?.access_token;
-
-  const params = new URLSearchParams({
-    client_id: botData.clientId,
-    client_secret: botData.clientSecret,
-    grant_type: "refresh_token",
-    refresh_token: tokenData.refresh_token,
-  });
-
-  const response = await fetch("https://discord.com/api/v10/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params,
-  });
-
-  if (!response.ok) throw new Error("Failed to refresh access token");
-
-  const refreshedData = await response.json();
-  tokenData.access_token = refreshedData.access_token;
-  tokenData.expires_at = Date.now() + refreshedData.expires_in * 1000;
-  userTokens.set(userId, tokenData);
-
-  return tokenData.access_token;
-}
-
 // サーバーロジック
 serve(async (req) => {
   const url = new URL(req.url);
@@ -56,7 +28,7 @@ serve(async (req) => {
   if (url.pathname === "/bomb") {
     if (req.method === "GET") {
       return new Response(renderBombPage(), {
-        headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
       });
     } else if (req.method === "POST") {
       const formData = await req.formData();
@@ -70,70 +42,8 @@ serve(async (req) => {
       }&response_type=code&scope=identify%20guilds.join`;
 
       return new Response(renderBombPage(), {
-        headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
       });
-    }
-  }
-
-  // コールバック処理
-  if (url.pathname === "/callback") {
-    if (req.method === "GET") {
-      const code = url.searchParams.get("code");
-      if (!code) {
-        return new Response("Missing 'code' in query parameters.", { status: 400 });
-      }
-
-      try {
-        const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            client_id: botData.clientId,
-            client_secret: botData.clientSecret,
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: "https://member-bomb56.deno.dev/callback",
-          }),
-        });
-
-        if (!tokenResponse.ok) {
-          return new Response("Failed to fetch access token.", { status: 500 });
-        }
-
-        const tokenData = await tokenResponse.json();
-        const expiresAt = Date.now() + tokenData.expires_in * 1000;
-
-        const userInfo = await fetch("https://discord.com/api/v10/users/@me", {
-          method: "GET",
-          headers: { Authorization: `Bearer ${tokenData.access_token}` },
-        }).then((res) => res.json());
-
-        userTokens.set(userInfo.id, {
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-          expires_at: expiresAt,
-          userId: userInfo.id,
-          username: userInfo.username,
-          avatar: userInfo.avatar,
-        });
-
-        return new Response(
-          `<html>
-            <body>
-              <h1>認証に成功しました！！</h1>
-              <p>
-                <img src="https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png" width="50">
-                ${userInfo.username}さんようこそ！！
-              </p>
-              <a href="/bomb">設定に戻る</a>
-            </body>
-          </html>`,
-          { headers: { "Content-Type": "text/html" } }
-        );
-      } catch (error) {
-        console.error(error);
-        return new Response("An error occurred during OAuth2 flow.", { status: 500 });
-      }
     }
   }
 
@@ -144,19 +54,19 @@ serve(async (req) => {
       username: token.username,
       avatar: token.avatar,
     }));
-    return new Response(JSON.stringify(users), { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(users), { headers: { "Content-Type": "application/json; charset=utf-8" } });
   }
 
   return new Response("Not Found", { status: 404 });
 });
 
-// ページレンダリング
+// ページレンダリング関数
 function renderBombPage() {
   const usersHTML = Array.from(userTokens.values())
     .map(
       (user) =>
         `<li>
-          <img src="https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png" width="30">
+          <img src="https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png" width="30" alt="Avatar">
           ${user.username}
         </li>`
     )
@@ -164,16 +74,109 @@ function renderBombPage() {
 
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
-  <title>Bot Configuration</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot設定ページ</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      background-color: #f4f4f9;
+      color: #333;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #333;
+      color: #fff;
+      padding: 1rem 0;
+      text-align: center;
+    }
+    form {
+      margin: 1rem auto;
+      padding: 1rem;
+      max-width: 500px;
+      background: #fff;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      border-radius: 8px;
+    }
+    .input-group {
+      margin-bottom: 1rem;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      display: block;
+      width: 100%;
+      padding: 0.7rem;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    h2 {
+      margin: 1rem 0;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    ul li {
+      margin: 0.5rem 0;
+    }
+    ul img {
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+  </style>
 </head>
 <body>
-  <h1>Bot Configuration</h1>
+  <header>
+    <h1>Bot設定</h1>
+  </header>
   <form method="POST">
-    <!-- Form -->
+    <div class="input-group">
+      <label for="guildId">Guild ID:</label>
+      <input type="text" id="guildId" name="guildId" value="${botData.guildId}" required>
+    </div>
+    <div class="input-group">
+      <label for="clientId">Client ID:</label>
+      <input type="text" id="clientId" name="clientId" value="${botData.clientId}" required>
+    </div>
+    <div class="input-group">
+      <label for="botToken">Bot Token:</label>
+      <input type="text" id="botToken" name="botToken" value="${botData.botToken}" required>
+    </div>
+    <div class="input-group">
+      <label for="clientSecret">Client Secret:</label>
+      <input type="text" id="clientSecret" name="clientSecret" value="${botData.clientSecret}" required>
+    </div>
+    <button type="submit">設定を保存</button>
   </form>
-  <h2>認証済みユーザー</h2>
+
+  <h2>認証用OAuth2 URL</h2>
+  <p>
+    ${
+      botData.cachedOAuthUrl
+        ? `<a href="${botData.cachedOAuthUrl}" target="_blank">${botData.cachedOAuthUrl}</a>`
+        : "まだURLが生成されていません。"
+    }
+  </p>
+  <h2>認証済みユーザー一覧</h2>
   <ul>${usersHTML}</ul>
 </body>
 </html>`;
