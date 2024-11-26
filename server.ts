@@ -1,12 +1,12 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
 const config = {
-  CLIENT_ID: "",
-  CLIENT_SECRET: "",
-  REDIRECT_URI: "",
+  CLIENT_ID: "", // Discord Developer Portal のクライアントID
+  CLIENT_SECRET: "", // Discord Developer Portal のクライアントシークレット
+  REDIRECT_URI: "", // Discord Developer Portal に設定したリダイレクトURI
 };
 
-// 認証済みのメンバー情報を保存するリスト
+// 認証済みのユーザー情報を保存するリスト
 const authenticatedUsers: {
   username: string;
   discriminator: string;
@@ -22,7 +22,7 @@ function htmlTemplate(body: string): string {
     <html lang="ja">
     <head>
       <meta charset="UTF-8">
-      <title>管理ページ</title>
+      <title>認証ページ</title>
       <style>
         body {
           font-family: Arial, sans-serif;
@@ -66,26 +66,7 @@ function htmlTemplate(body: string): string {
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  if (url.pathname === "/auth" && req.method === "GET") {
-    const authUrl = 
-      config.CLIENT_ID && config.REDIRECT_URI
-        ? `https://discord.com/oauth2/authorize?client_id=${config.CLIENT_ID}&redirect_uri=${encodeURIComponent(
-            config.REDIRECT_URI
-          )}&response_type=code&scope=identify%20guilds`
-        : null;
-
-    const body = `
-      <h1>Discord認証</h1>
-      ${
-        authUrl
-          ? `<p><a href="${authUrl}" class="button">Discord認証を開始</a></p>`
-          : "<p>設定情報が不足しています。</p>"
-      }
-    `;
-    return new Response(htmlTemplate(body), {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  } else if (url.pathname === "/callback" && req.method === "GET") {
+  if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
     const { CLIENT_ID, CLIENT_SECRET, REDIRECT_URI } = config;
 
@@ -96,6 +77,7 @@ async function handler(req: Request): Promise<Response> {
     }
 
     try {
+      // Discordのトークンを取得
       const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -113,36 +95,32 @@ async function handler(req: Request): Promise<Response> {
         throw new Error("認証に失敗しました: " + tokenData.error_description);
       }
 
+      // ユーザー情報を取得
       const userRes = await fetch("https://discord.com/api/v10/users/@me", {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       });
       const userData = await userRes.json();
 
-      const guildsRes = await fetch(
-        "https://discord.com/api/v10/users/@me/guilds",
-        {
-          headers: { Authorization: `Bearer ${tokenData.access_token}` },
-        }
-      );
+      // ユーザーが参加しているサーバーを取得
+      const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
       const guildsData = await guildsRes.json();
 
-      // ユーザー情報を保存
+      // ユーザー情報とサーバー情報を保存
       authenticatedUsers.push({
         username: userData.username,
         discriminator: userData.discriminator,
         userId: userData.id,
         avatar: userData.avatar,
-        guilds: guildsData.map((guild: any) => ({
-          name: guild.name,
-          id: guild.id,
-        })),
+        guilds: guildsData.map((guild: any) => ({ name: guild.name, id: guild.id })),
       });
 
-      // 認証成功ページへリダイレクト
+      // 認証成功のメッセージ
       const body = `
-        <h1>認証が成功しました！！</h1>
-        <p>ようこそ、${userData.username}#${userData.discriminator} さん！</p>
-        <p><a href="/joinserver" class="button">認証済みユーザーを見る</a></p>
+        <h1>認証に成功しました！</h1>
+        <p>${userData.username}#${userData.discriminator} さん、ようこそ！</p>
+        <p><a></a></p>
       `;
       return new Response(htmlTemplate(body), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -154,26 +132,26 @@ async function handler(req: Request): Promise<Response> {
       });
     }
   } else if (url.pathname === "/joinserver" && req.method === "GET") {
-    const userListHtml = authenticatedUsers
-      .map((user) => {
-        return `
-          <li>
-            <strong>${user.username}#${user.discriminator}</strong>
-            <img src="https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png" alt="Avatar" width="50">
-            <ul>
-              ${user.guilds.map((guild) => `<li>${guild.name} (ID: ${guild.id})</li>`).join("")}
-            </ul>
-          </li>
-        `;
-      })
-      .join("");
+    if (authenticatedUsers.length === 0) {
+      return new Response("認証されたユーザーがいません。", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
 
-    const body = `
-      <h1>認証済みユーザー</h1>
-      <ul>
-        ${userListHtml || "<p>まだ認証されたユーザーはいません。</p>"}
-      </ul>
-    `;
+    // すべての認証済みユーザーのサーバー情報を表示
+    let body = "<h1>認証したユーザーのサーバー一覧</h1>";
+
+    authenticatedUsers.forEach((user) => {
+      body += `
+        <h2>${user.username}#${user.discriminator}</h2>
+        <ul>
+          ${user.guilds.map(
+            (guild) => `<li>${guild.name}</li>`
+          ).join("")}
+        </ul>
+      `;
+    });
+
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
