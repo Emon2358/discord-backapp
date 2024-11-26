@@ -1,5 +1,4 @@
-// deno-lint-ignore-file prefer-const no-explicit-any ban-unused-ignore no-unused-vars
-// deno-lint-ignore no-unused-vars
+// deno-lint-ignore-file prefer-const no-unused-vars no-explicit-any
 import {
   Application,
   Router,
@@ -137,14 +136,20 @@ router.get("/kanri", (ctx) => {
 
 // 設定情報を保存するPOSTハンドラー
 router.post("/save-config", async (ctx) => {
-  const body = ctx.request.body({ type: "form" });
-  const values = await body.value;
+  try {
+    const body = ctx.request.body({ type: "form" });
+    const values = await body.value;
 
-  config.CLIENT_ID = values.get("CLIENT_ID") || "";
-  config.CLIENT_SECRET = values.get("CLIENT_SECRET") || "";
-  config.REDIRECT_URI = values.get("REDIRECT_URI") || "";
+    config.CLIENT_ID = values.get("CLIENT_ID") || "";
+    config.CLIENT_SECRET = values.get("CLIENT_SECRET") || "";
+    config.REDIRECT_URI = values.get("REDIRECT_URI") || "";
 
-  ctx.response.redirect("/kanri");
+    // 設定保存後にリダイレクト
+    ctx.response.redirect("/kanri");
+  } catch (error) {
+    console.error("設定保存時にエラーが発生しました: ", error);
+    ctx.response.body = "設定保存時にエラーが発生しました。";
+  }
 });
 
 // Discord認証後のコールバック処理
@@ -178,6 +183,7 @@ router.get("/callback", async (ctx) => {
       </html>
     `;
   } catch (error) {
+    console.error("認証時にエラーが発生しました: ", error);
     ctx.response.body = "エラーが発生しました: " + error.message;
   }
 });
