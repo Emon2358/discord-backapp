@@ -1,6 +1,7 @@
+// deno-lint-ignore-file no-unused-vars require-await
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
-import { readJson, writeJson } from "https://deno.land/std/fs/mod.ts";
 
+// 設定オブジェクト
 const config = {
   CLIENT_ID: "",
   CLIENT_SECRET: "",
@@ -21,13 +22,18 @@ const DATA_FILE = "./authenticated_users.json";
 
 // データを保存する関数
 async function saveAuthenticatedUsers() {
-  await writeJson(DATA_FILE, authenticatedUsers, { spaces: 2 });
+  try {
+    await Deno.writeTextFile(DATA_FILE, JSON.stringify(authenticatedUsers, null, 2));
+  } catch (error) {
+    console.error("データ保存時にエラーが発生しました:", error);
+  }
 }
 
 // データを読み込む関数
 async function loadAuthenticatedUsers() {
   try {
-    authenticatedUsers = await readJson(DATA_FILE) as typeof authenticatedUsers;
+    const data = await Deno.readTextFile(DATA_FILE);
+    authenticatedUsers = JSON.parse(data);
   } catch {
     authenticatedUsers = [];
   }
