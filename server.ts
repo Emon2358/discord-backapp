@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-const CLIENT_ID = "your_client_id"; // ここに設定
-const CLIENT_SECRET = "your_client_secret"; // ここに設定
-const REDIRECT_URI = "http://localhost:8000/callback";
+let CLIENT_ID = ""; // 動的に設定される
+let CLIENT_SECRET = ""; // 動的に設定される
+let REDIRECT_URI = ""; // 動的に設定される
 
 const authenticatedUsers: {
   username: string;
@@ -36,15 +36,17 @@ function htmlTemplate(body: string): string {
         h1, h2 {
           margin: 10px 0;
         }
-        a {
+        a, button {
           color: white;
           text-decoration: none;
           background: #4CAF50;
           padding: 10px 20px;
           border-radius: 5px;
           transition: background 0.3s;
+          border: none;
+          cursor: pointer;
         }
-        a:hover {
+        a:hover, button:hover {
           background: #45a049;
         }
         table {
@@ -61,6 +63,18 @@ function htmlTemplate(body: string): string {
           background-color: #4CAF50;
           color: white;
         }
+        form {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+        input {
+          padding: 10px;
+          width: 300px;
+          border: none;
+          border-radius: 5px;
+        }
       </style>
     </head>
     <body>
@@ -74,12 +88,36 @@ function htmlTemplate(body: string): string {
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  // 認証用URL
-  const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(
-    REDIRECT_URI
-  )}&response_type=code&scope=identify%20guilds`;
+  // `/kanri`で設定値を入力するフォーム
+  if (url.pathname === "/kanri" && req.method === "GET") {
+    const body = `
+      <h1>クライアント情報の設定</h1>
+      <form method="POST" action="/kanri">
+        <input type="text" name="client_id" placeholder="Client ID" required value="${CLIENT_ID}">
+        <input type="text" name="client_secret" placeholder="Client Secret" required value="${CLIENT_SECRET}">
+        <input type="text" name="redirect_uri" placeholder="Redirect URI" required value="${REDIRECT_URI}">
+        <button type="submit">保存</button>
+      </form>
+      <p><a href="/joinserver">認証済みユーザーのサーバー情報を見る</a></p>
+    `;
+    return new Response(htmlTemplate(body), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
 
-  // /joinserver: 認証済みユーザーの全ギルド情報表示
+  // `/kanri`フォーム送信で設定値を保存
+  if (url.pathname === "/kanri" && req.method === "POST") {
+    const formData = await req.formData();
+    CLIENT_ID = formData.get("client_id") as string;
+    CLIENT_SECRET = formData.get("client_secret") as string;
+    REDIRECT_URI = formData.get("redirect_uri") as string;
+
+    return new Response(htmlTemplate("<h1>設定が保存されました！</h1><p><a href='/kanri'>戻る</a></p>"), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+
+  // `/joinserver`: 認証済みユーザーの全ギルド情報表示
   if (url.pathname === "/joinserver" && req.method === "GET") {
     const guildTableRows = authenticatedUsers
       .flatMap((user) =>
@@ -108,14 +146,15 @@ async function handler(req: Request): Promise<Response> {
           ${guildTableRows || "<tr><td colspan='3'>まだ認証されたユーザーはいません。</td></tr>"}
         </tbody>
       </table>
-      <p><a href="${authUrl}">新しいユーザーを認証</a></p>
+      <p><a href="/kanri">クライアント情報を変更する</a></p>
     `;
     return new Response(htmlTemplate(body), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
+  }
 
-  // /callback: 認証後のリダイレクト
-  } else if (url.pathname === "/callback" && req.method === "GET") {
+  // `/callback`: 認証後の処理
+  if (url.pathname === "/callback" && req.method === "GET") {
     const code = url.searchParams.get("code");
     if (!code) {
       return new Response("コードがありません", { status: 400 });
