@@ -135,7 +135,7 @@ async function handler(req: Request): Promise<Response> {
       const body = `
         <h1>エラー</h1>
         <p>設定保存時にエラーが発生しました: ${error.message}</p>
-        <p><a href="/kanri">管理ページに戻る</a></p>
+        <p><a></a></p>
       `;
       return new Response(htmlTemplate(body), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
