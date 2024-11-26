@@ -6,6 +6,9 @@ const config = {
   REDIRECT_URI: "",
 };
 
+// 認証済みのメンバー情報を保存するオブジェクト
+const authenticatedUsers: Record<string, { username: string; servers: string[] }> = {};
+
 // HTMLテンプレート生成関数
 function htmlTemplate(body: string): string {
   return `
@@ -23,7 +26,7 @@ function htmlTemplate(body: string): string {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          height: 100vh;
+          min-height: 100vh;
           background: #f4f4f4;
           color: #333;
         }
@@ -44,16 +47,12 @@ function htmlTemplate(body: string): string {
         .button:hover {
           background: #0056b3;
         }
-        form input {
-          margin-bottom: 10px;
-          padding: 8px;
-          width: 100%;
-          box-sizing: border-box;
+        ul {
+          list-style: none;
+          padding: 0;
         }
-        form label {
-          display: block;
-          margin-bottom: 5px;
-          font-weight: bold;
+        li {
+          margin: 5px 0;
         }
       </style>
     </head>
@@ -157,15 +156,19 @@ async function handler(req: Request): Promise<Response> {
       });
       const userData = await userRes.json();
 
-      const body = `
-        <div class="success-animation">
-          <h1>認証に成功しました！</h1>
-          <p>ようこそ、${userData.username}#${userData.discriminator} さん！</p>
-          <a></a>
-        </div>
-      `;
-      return new Response(htmlTemplate(body), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+      const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      const guilds = await guildsRes.json();
+
+      authenticatedUsers[userData.id] = {
+        username: `${userData.username}#${userData.discriminator}`,
+        servers: guilds.map((guild: { name: string }) => guild.name),
+      };
+
+      return new Response("", {
+        status: 303,
+        headers: { Location: "/joinserver" },
       });
     } catch (error) {
       console.error("OAuth2認証エラー:", error);
@@ -173,6 +176,20 @@ async function handler(req: Request): Promise<Response> {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
+  } else if (url.pathname === "/joinserver" && req.method === "GET") {
+    const body = `
+      <h1>認証済みメンバーと参加サーバー一覧</h1>
+      ${Object.entries(authenticatedUsers)
+        .map(
+          ([id, user]) =>
+            `<h2>${user.username}</h2>
+            <ul>${user.servers.map((server) => `<li>${server}</li>`).join("")}</ul>`
+        )
+        .join("")}
+    `;
+    return new Response(htmlTemplate(body), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   } else {
     return new Response("Not Found", { status: 404 });
   }
