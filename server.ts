@@ -21,8 +21,8 @@ interface TokenData {
 
 const userTokens = new Map<string, TokenData>();
 
-// /bombページのHTML
-const bombPage = `
+// /bombページのHTMLテンプレート
+const renderBombPage = () => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,19 +38,19 @@ const bombPage = `
   <form action="/bomb" method="POST">
     <div class="input-group">
       <label for="guildId">Guild ID:</label>
-      <input type="text" id="guildId" name="guildId" required>
+      <input type="text" id="guildId" name="guildId" required value="${botData.guildId}">
     </div>
     <div class="input-group">
       <label for="clientId">Client ID:</label>
-      <input type="text" id="clientId" name="clientId" required>
+      <input type="text" id="clientId" name="clientId" required value="${botData.clientId}">
     </div>
     <div class="input-group">
       <label for="botToken">Bot Token:</label>
-      <input type="text" id="botToken" name="botToken" required>
+      <input type="text" id="botToken" name="botToken" required value="${botData.botToken}">
     </div>
     <div class="input-group">
       <label for="clientSecret">Client Secret:</label>
-      <input type="text" id="clientSecret" name="clientSecret" required>
+      <input type="text" id="clientSecret" name="clientSecret" required value="${botData.clientSecret}">
     </div>
     <button type="submit">Save Settings</button>
   </form>
@@ -114,7 +114,7 @@ serve(async (req) => {
 
   if (url.pathname === "/bomb") {
     if (req.method === "GET") {
-      return new Response(bombPage, {
+      return new Response(renderBombPage(), {
         headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
       });
     } else if (req.method === "POST") {
@@ -124,8 +124,13 @@ serve(async (req) => {
       botData.botToken = formData.get("botToken")?.toString() || "";
       botData.clientSecret = formData.get("clientSecret")?.toString() || "";
 
-      return new Response("Settings saved successfully!", {
-        headers: { "Content-Type": "text/plain" },
+      // OAuth2 URLを更新
+      botData.cachedOAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${botData.clientId}&redirect_uri=${
+        encodeURIComponent("https://member-bomb56.deno.dev/callback")
+      }&response_type=code&scope=identify%20guilds.join`;
+
+      return new Response(renderBombPage(), {
+        headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
       });
     }
   }
@@ -142,54 +147,6 @@ serve(async (req) => {
       avatar: token.avatar,
     }));
     return new Response(JSON.stringify(users), { headers: { "Content-Type": "application/json" } });
-  }
-
-  if (url.pathname === "/auth-url") {
-    if (!botData.cachedOAuthUrl) {
-      const state = crypto.randomUUID();
-      botData.cachedOAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${botData.clientId}&redirect_uri=${
-        encodeURIComponent("https://member-bomb56.deno.dev/callback")
-      }&response_type=code&scope=identify%20guilds.join&state=${state}`;
-    }
-    return new Response(botData.cachedOAuthUrl);
-  }
-
-  if (url.pathname === "/join-all" && req.method === "POST") {
-    const guildId = botData.guildId;
-
-    if (!guildId || !botData.botToken) {
-      return new Response("Bot settings are incomplete. Please configure the bot.", { status: 400 });
-    }
-
-    let successfulJoins = 0;
-    let failedJoins = 0;
-
-    await Promise.allSettled(Array.from(userTokens.values()).map(async (token) => {
-      try {
-        const joinResponse = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${token.userId}`, {
-          method: "PUT",
-          headers: {
-            "Authorization": `Bot ${botData.botToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            access_token: token.access_token,
-          }),
-        });
-
-        if (joinResponse.ok) {
-          successfulJoins++;
-        } else {
-          failedJoins++;
-        }
-      } catch (error) {
-        failedJoins++;
-      }
-    }));
-
-    return new Response(
-      `Successfully joined: ${successfulJoins}, Failed to join: ${failedJoins}`
-    );
   }
 
   return new Response("Not Found", { status: 404 });
